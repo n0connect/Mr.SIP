@@ -1,0 +1,239 @@
+# Changelog
+
+## 1.4.0 — DAS flood control, and Ctrl+C summaries everywhere
+
+New capability requested directly by the operator using the tool day-to-day: infinite flood mode, rate limiting, and never losing the run summary to an interrupt. `--dry-run` was considered and deliberately not added. 7 new regression tests (`tests/test_das.py`, `tests/test_threadpool.py`), 141 tests total.
+
+### New capability
+
+- **`-c 0` now means flood indefinitely** (SIP-DAS), matching the `hping3`/`nping` convention. Previously `-c 0` was a degenerate no-op: `while i < counter` never entered the loop, so it silently sent zero packets - nobody runs `-c 0` meaning "send nothing" on purpose. `-c` (unspecified) keeps its existing effectively-infinite default (`99999999`); this only gives `0` itself a real, intentional meaning. `tqdm`'s progress bar switches to an unbounded counter (`total=None`) in this mode instead of showing `0/0`.
+- **New `--pps`/`--packets-per-second` flag (SIP-DAS)** throttles the flood to at most N packets/sec, via a new `net_utils.positive_float()` argparse validator (rejects 0 and negative values - a 0 rate would make the per-packet sleep interval infinite). Default is unthrottled, unchanged from before. Useful for an operator who deliberately wants a slower, more controlled test run instead of saturating the link/tripping an IDS immediately.
+
+### Correctness fixes
+
+- **Ctrl+C during a SIP-DAS flood used to throw away the final summary panel.** The old `except KeyboardInterrupt: ... raise SystemExit from None` fired *before* the `_summarize()`/`theme.panel()` call that reports packets/sec and sent/failed counts - meaning the single most common way an operator actually stops a flood (it's either infinite or a very large default counter; nobody waits for it to finish) skipped the one thing that instrumentation exists for. The summary is now computed in a `finally` block that runs on every exit path (normal completion or interrupt), and `KeyboardInterrupt` is no longer swallowed - it still propagates to `cli.main()`'s existing handler, which prints "Interrupted by user." and exits 130, unchanged.
+- **Same class of bug in `threadpool.run_worker_pool()` (SIP-NES/SIP-ENUM).** Ctrl+C during a bulk scan/enumeration re-raised past `work_queue.join()`, skipping the caller's own "N found" summary panel (`nes.py`/`enum.py`, logged right after the call returns). Now logs the interrupt warning and returns whatever results the worker threads had already completed and queued, instead of re-raising - the caller's existing summary-logging code then runs normally on the partial result set. (Exit code is 0 in this path rather than 130, since the operation is treated as having produced a valid, if early, result - not a crash.)
+
+## 1.3.1 — Property-based fuzz testing pass
+
+A dedicated fuzzing pass using [`hypothesis`](https://hypothesis.readthedocs.io/) (new dev-only dependency, `tests/requirements-dev.txt`) against every function that parses untrusted input: CLI argparse validators, SIP packet templating, SIP response parsing, and wordlist file reading. Pure bug fixes - no new capability, no flag changes, no interface change. 12 new regression tests (`tests/test_fuzz.py`), 134 tests total.
+
+### Correctness fixes
+
+- **`check_ip_address()` crashed on a value with more than one `/`** (e.g. `--tn=1.2.3.4/24/extra`). The CIDR branch did `ip, subnet = value.split("/")`, which raises an unhandled `ValueError: too many values to unpack` for 3+ parts - argparse's own exception handling happened to still turn this into a usable (if generic) error message when reached via `--tn`, but calling the function directly (as the test suite already does) crashed outright. Now validates the split count first and raises the intended `argparse.ArgumentTypeError`.
+- **`sip_packet.fill_packet_data()` crashed on a lone Unicode surrogate character.** A CLI argument containing invalid-UTF-8 bytes is decoded via `sys.argv`'s `errors="surrogateescape"`, producing a string with a lone surrogate; the function's final `.encode("utf-8")` raised `UnicodeEncodeError` on it, crashing the whole run with a raw traceback - reproduced live via `--nes --tn=127.0.0.1 --mt=options --from=<invalid-utf8-byte>`. Every substituted value is now round-tripped through `encode("utf-8", errors="ignore").decode("utf-8")` alongside the existing CRLF-stripping, dropping any character that can't be represented before it ever reaches the template.
+- **Console and file logging could themselves crash on an unencodable log message** (e.g. the surrogate case above, echoed back in a "File not found" error message) - `TqdmLoggingHandler`'s internal error handling caught it and degraded to a `--- Logging error ---` dump on stderr instead of a full crash, but that's still noise instead of the intended clean error. `setup_logging()` now reconfigures stdout (`sys.stdout.reconfigure(errors="backslashreplace")`) and the file handler (`logging.FileHandler(..., errors="backslashreplace")`) to gracefully escape unencodable characters instead of raising.
+- **`net_utils.read_lines()`/`read_ip_list()` crashed with a raw `UnicodeDecodeError`** on a wordlist file that isn't valid UTF-8 (a binary file pointed at by mistake, a wordlist saved in Latin-1/Windows-1252, ...) - every other bad-input case in this codebase gets a clean CLI error, this one didn't. Now catches the decode error and raises `errors.MrSipError` with a clear message, caught centrally in `cli.main()` like everything else.
+- **`--dp`/`--destination-port` had no range validation** (unlike `--tc`, which does). A value outside 0-65535 reached `socket.connect()` and raised a raw `OverflowError: port must be 0-65535` deep inside `generate_packet()`, uncaught by the `except (OSError, UnicodeDecodeError)` clause there (`OverflowError` is neither) - reproduced live with `--dp=99999999` and `--dp=-5`. New `net_utils.port_number()` validator, same pattern as `positive_int()`, rejects out-of-range values at parse time with a clean error.
+
+### Verified robust (no fix needed)
+
+- `sip_packet.getResponse()` - the actual network-facing parser (handles whatever bytes a target sends back, including a hostile or compromised one) - held up against ~6,000 fuzzed random and SIP-shaped-garbage inputs with zero unhandled exceptions; malformed input correctly degrades to a logged warning and an empty/partial result dict, which downstream callers already guard against.
+- `build_parser().parse_args()` - 3,000+ fuzzed argv combinations (random flags, values, and orderings) never raised anything but the expected `SystemExit`.
+- An extremely long (5,000-character) or Unicode username sent live against both lab targets (Docker/Asterisk and QEMU/Trixbox) either succeeded or failed cleanly (`PacketSendError: Message too long` for an oversized UDP datagram) - no crash.
+
+## 1.3.0 — Themed UI, DRY consolidation, and a second correctness-hardening pass
+
+No CLI behavior is removed and no existing flag changes meaning; a script that worked against `1.2.0` still works. This pass focused on three things: a real terminal UI layer (colors driven by log level instead of hardcoded per call site), removing every remaining case of the same logic implemented two different ways across `nes.py`/`enum.py`/`das.py`, and a from-scratch re-audit of the whole `src/` tree that found and fixed a further round of real bugs beyond what `1.2.0`'s pass covered.
+
+### New capability
+
+- **Themed console output.** `src/core/theme.py` is now the single source of every ANSI color/style used anywhere in the tool. Console log lines get an automatic `[ DEBUG ]`/`[ INFO ]`/`[ FOUND ]`/`[ WARN ]`/`[ ERROR ]` tag, colored by level via a new `logging_config.ColorFormatter` — replacing the old convention of hardcoding escape codes and ad-hoc `[!]`/`[+]` string prefixes inline at each call site. A new custom `FOUND` log level (between `INFO` and `WARNING`) replaces the old `[+]` marker for "live host / valid extension found" results. Color auto-disables when `NO_COLOR` is set or stdout isn't a real terminal.
+- **Vulnerability highlighting in ENUM.** Highlight secretless extensions (authentication not required) in red (`theme.ERROR`) to immediately alert security testers of severe misconfigurations during enumeration.
+- **Refreshed screenshot assets.** Replaced legacy screenshot files with high-quality terminal captures reflecting the local QEMU Trixbox lab setup (`SIP-NES.png`, `SIP-ENUM.png`, `SIP-ENUM2.png`, `SIP-DAS.png`). Updated `README.md` to reference these new paths and document the new highlight output behavior.
+- **New block-style startup banner**, colored through `theme.py`'s constants instead of raw escape codes baked into the banner string.
+- **Boxed run summaries.** Each module's final result line is now rendered as a bordered panel (`theme.panel()`) instead of a single unstyled log line.
+- **`TqdmLoggingHandler`** (`logging_config.py`) routes console logs through `tqdm.write()` instead of writing directly to stdout, so log lines during a scan no longer corrupt the live progress bar's line.
+- **SIP-ENUM blanket-rejection pre-check.** Before enumerating, ENUM now sends one probe per target with a random, guaranteed-nonexistent username; if the target responds 401/403 to it, ENUM warns that the server may be blanket-rejecting everything (e.g. modern PJSIP's default behavior — see F6 below), so the operator knows to treat results with suspicion instead of trusting a silent false-positive.
+
+### Architecture / DRY consolidation
+
+Per-module logic that had drifted into 2–4 different implementations of the same operation was consolidated to one:
+
+- `net_utils.read_lines()` / `net_utils.read_ip_list()` replace four divergent wordlist/`ip_list.txt`-reading implementations previously spread across `nes.py`, `enum.py`, and `das.py` (one of which silently skipped the `isalnum` filter the others applied).
+- `threadpool.confirm_bulk_run()` replaces near-identical copy-pasted "N packages will be generated, continue?" prompt-building code in `nes.py` and `enum.py`.
+- `net_utils._validate_dotted_quad()` replaces three separate copies of octet-range validation inside `check_ip_address()` (two of which were missing the `ValueError` guard the third had).
+- `net_utils.printResult()` now calls `decimal_to_octets()` instead of re-implementing the same int→dotted-IP conversion inline.
+- `nes.py`'s three copy-pasted target×user cross-product comprehensions were merged into one, computed once after `target_networks` is determined.
+- `net_utils.defineTargetType()` now calls `read_lines()` instead of manually re-implementing its split/filter logic (with a subtly different, unintended behavior — see Correctness fixes).
+- Dead `net_utils.readFile()` removed (its only caller was consolidated away).
+- New `net_utils.positive_int()` argparse validator for `--tc`/`--thread-count`.
+- `sip_packet._read_template()` caches `.message` template file reads (`functools.cache`) instead of re-opening the same file from disk on every `generate_packet()` call — the same class of redundant I/O already fixed for wordlists/`servers.txt` in `1.2.0` (F8/F16), just missed for the templates themselves. Matters most in DAS's flood loop, which calls this up to ~1e8 times at the default counter.
+
+### Correctness fixes
+
+- **OS-assigned UDP port binding:** Modified standard socket client port allocation to bind to port `0`, enabling the OS to automatically assign a free ephemeral port, which is then retrieved via `getsockname()` and filled into the template. This completely eliminates `Address already in use` (Errno 48) bind failures during high-frequency DoS simulations.
+- **The y/n confirmation prompt's `setraw`/`setcbreak` bug, actually fixed this time.** `1.2.0`'s changelog and the prior commit's message both claimed a switch from `tty.setraw()` to `tty.setcbreak()` to fix doubled/misaligned keypress output — but the code was never actually changed. `src/core/threadpool.py`'s `_read_single_char()` now genuinely calls `tty.setcbreak()`; verified live over a real controlling terminal (`setsid`/`TIOCSCTTY`) that a single `n` keypress renders correctly with no doubling.
+- **`net_utils.printResult()` no longer crashes on a malformed or incomplete SIP response.** `sip_packet.getResponse()` can return `{}` (unparseable status line), fall through to an implicit `None` (no headers past the status line), or store `None` for a header line with no `:`. `printResult()` used to index straight into `result["response"]["headers"]` and then `list(value)`, crashing with `KeyError`/`TypeError` on any of these — reachable from a single malformed reply during a live scan. Now guarded at every level.
+- **`--tc=0` (or negative) no longer hangs the tool forever.** `run_worker_pool()` starts `range(thread_count)` worker threads; a count below 1 meant no thread ever existed to drain the queue, so the run spun with no error message until manually killed. `--tc` now goes through the new `positive_int` validator.
+- **SIP-ENUM's single-username-wordlist off-by-one.** `if len(user_list) <= 1` rejected a wordlist containing exactly one valid entry as if it were empty, blocking the legitimate "enumerate exactly one extension" case. Now `if not user_list`.
+- **`logger.found()` no longer depends on import order.** The custom `FOUND` level is registered as an import-time side effect of `logging_config.py`; `net_utils.py` (which calls `logger.found()` in `printResult()`) now imports `logging_config` itself, so this works regardless of whether `cli.py` has already run first.
+- **`check_ip_address()`'s range and plain-IP branches now reject a non-numeric octet the same clean way the CIDR branch already did**, via the new shared `_validate_dotted_quad()` helper — previously they had no guard around `int(number)` (argparse's own exception handling happened to still produce a usable, if generic, error message, so this was never a raw crash, just an inconsistent one).
+- **`nes.py`'s file-vs-literal-value detection for `--from`/`--to` switched from a fragile `"txt" in value` substring check to `os.path.isfile(value)`.** The old check misclassified a literal username containing "txt" as a file, and a wordlist path without a literal `.txt` in it as a literal value.
+- **`net_utils.defineTargetType()`'s server-list matching now strips whitespace before filtering**, via the `read_lines()` consolidation above — the old manual re-implementation could silently drop a legitimate `servers.txt` entry with trailing whitespace or a stray `\r`.
+- **DAS: `-m` without `--il` now raises a clean error instead of a raw `TypeError`.** `args.manual_ip_list` defaults to `None`; `net_utils.read_ip_list(None)` used to call `open(None)` directly.
+- **DAS: `-s`/`--subnet` without a valid interface netmask now raises a clean error instead of crashing mid-flood.** A `client_netmask` of `None` used to reach `randomIPAddressFromNetwork()` and fail deep inside the send loop.
+- **DAS: promiscuous mode is now guaranteed to be turned back off**, via `try/finally`. It previously only ran on the `KeyboardInterrupt` path and after normal completion — any other exception (e.g. an empty `--il` list making `random.choice` raise `IndexError`) left the interface stuck in promiscuous mode.
+
+### Performance fixes
+
+- **`das.py`'s flood loop no longer recomputes a Scapy routing-table lookup (`IP(dst=...).src`) on every iteration.** `args.target_network` is invariant across the loop, and the value was discarded immediately whenever `-r`/`-s`/`-m` overrode it anyway — now computed once, up front.
+- **`run_worker_pool()` simplified back down to one completion-tracking mechanism.** An earlier iteration of this pass had it running `queue.join()` alongside a *second*, separate daemon thread polling `unfinished_tasks` every 50ms just to drive the progress bar — more machinery than needed, and the timeout-bounded teardown of that second thread had a small theoretical race with `pbar.close()`. Each worker now updates the (lock-guarded) progress bar itself right after finishing its own item; `queue.join()` alone decides when the function returns.
+
+### Testing
+
+~50 new pytest cases (`test_theme.py`, `test_logging_config.py`, `test_enum.py` are new files; `test_net_utils.py`, `test_threadpool.py`, `test_das.py`, `test_sip_packet.py` gained new cases), including regression tests for the `setcbreak` fix, the `printResult`/`check_ip_address`/`positive_int`/template-caching fixes above, and the blanket-rejection pre-check. 122 tests total; `ruff check src/ tests/ mr.sip.py` clean.
+
+### Known observation, not fixed
+
+SIP-ENUM's new blanket-rejection pre-check runs one synchronous probe per target *before* the bulk-confirmation prompt, unthreaded. For a single `--tn` target this is one extra packet; for a large `output/ip_list.txt` (e.g. a full `/24` from a prior SIP-NES run), it adds up to one sequential round-trip per host before the operator is even asked to confirm the run. Not incorrect, just a potential wait on large host lists - left as-is pending a decision on whether to thread it through `run_worker_pool()` or move it after confirmation.
+
+## 1.2.0
+
+Technical summary of the modular refactor and correctness/security hardening pass on top of upstream Mr.SIP `v1.1.0`. Baseline for comparison is commit `bdd98ad` ("Update OffzoneMoscow2019badge.svg") — the last commit before this work started.
+
+No CLI behavior is removed and no existing flag changes meaning. Two new flags were added (`--mtu`, `--version`). Everything else is a bug fix, a hardening change, or an internal restructure; a script that worked before still works, generally with more accurate output.
+
+Current version: `1.2.0` (from upstream's `1.1.0` - a minor bump, since the CLI surface is unchanged and nothing here is a breaking API change for end users).
+
+## Table of contents
+
+- [New CLI capability](#new-cli-capability)
+- [Long-term maintainability](#long-term-maintainability)
+- [Architecture changes](#architecture-changes)
+- [Correctness fixes](#correctness-fixes)
+- [Security fixes](#security-fixes)
+- [Reliability / concurrency fixes](#reliability--concurrency-fixes)
+- [Performance fixes](#performance-fixes)
+- [Usability / error-handling fixes](#usability--error-handling-fixes)
+- [Known limitation left open](#known-limitation-left-open)
+- [Testing](#testing)
+- [Baseline vs. current: reproducible comparison](#baseline-vs-current-reproducible-comparison)
+- [Upgrade notes](#upgrade-notes)
+
+---
+
+## New CLI capability
+
+| Flag | Module | Description |
+|---|---|---|
+| `--mtu <bytes>` | SIP-DAS | In Scapy mode, fragments each outgoing packet to the given MTU via Scapy's `fragment()`. Rejects values below 68 bytes (minimum IPv4 MTU) with a clean error instead of producing malformed fragments. |
+| `--version` | global | Prints `Mr.SIP <version>` and exits. `__version__` existed in `src/__init__.py` before this but was never actually wired up to anything - dead code. |
+
+Everything else in `--help` is unchanged flag-for-flag from upstream; only the help text and a few defaults (see [Upgrade notes](#upgrade-notes)) were reworded/repathed.
+
+## To-Do.md resolution
+
+Upstream shipped a `To-Do.md` with 6 items. Reviewed each against the public repo's actual scope (3 modules: NES/ENUM/DAS) and removed the file once every in-scope item was addressed:
+
+1. *"SIP-ENUM will be integrated"* - done; it's one of the 3 public modules.
+2. *"SIP-ASP will be integrated"* (+ two DDoS sub-scenarios) - **out of scope**. SIP-ASP is a Pro-only module (confirmed against the Mr.SIP Pro technical guide); it was never part of, and isn't being added to, this repo.
+3. SIP-DAS features:
+   - a) *"Fragmentation and custom MTU value set support"* - done, this is the `--mtu` flag above.
+   - b) *"Network level IP spoofing support"* - already present since the 2017 initial commit (`-r`/`-s`/`-m`, Scapy IP-layer spoofing); confirmed via `git log`, not something added here.
+   - c) *"Instrumentation"* - added: SIP-DAS's final summary line now reports actual packets/sec (wall-clock elapsed time, not the requested count) and average per-call send time in ms. Send timings are accumulated as a running sum/count rather than a list, so this doesn't add per-packet memory overhead even at the ~1e8 default flood counter (the same lesson as F8). Unit-tested in `tests/test_das.py` (the summary-formatting logic is a pure function, isolated from the network loop specifically so it's testable without a live target); verified live against Docker (`"20 packet sent to 127.0.0.1... 11968.3 packets/sec, avg send time 0.1 ms."`).
+4. *"Verbose mode support"* - done; `-v`/`--verbose` now actually toggles DEBUG logging (previously a no-op).
+5. *"Input validation should be performed"* - done extensively (F15, the CRLF-injection fix, `check_ip_address`'s bugs, argparse `type=int` on numeric flags, etc.).
+6. *"The whole code should be reviewed for all possibilities and exceptions"* - done; this was effectively the scope of the entire F1-F21 pass plus the `ruff`/exception-chaining cleanup.
+
+## Long-term maintainability
+
+Everything in this branch up to this point was verified by hand against a live Docker/Asterisk target and a QEMU lab - thorough, but not repeatable and not something a future contributor's PR gets checked against automatically. This closes that gap:
+
+- **`tests/`** - a real pytest suite (68 tests, runs in well under a second, no network required) covering every deterministic piece of logic: IP/CIDR validation (including the exception-chaining fix below), SIP packet templating (including the CRLF-injection fix and F13's per-instance `client_port`), CLI argument parsing (including F15's `type=int` fixes), the thread pool (including a direct regression test that `queue.join()` genuinely blocks for slow workers - F4), and a static structural check on every `.message` template that would have caught F21 automatically (verified live: reintroducing F21's exact bug into `bye.message` makes the relevant test fail immediately). Network-dependent behavior (does SIP-NES actually find a live host) is intentionally out of scope for this suite and continues to rely on the manual methodology in [Testing](#testing) - mocking sockets/Scapy convincingly enough to be worth trusting was judged not worth it for a first suite.
+- **`pyproject.toml`** - `ruff` and `pytest` configuration. This is a config-only file (no `[project]`/`[build-system]` table), so it does **not** reintroduce pip-installability, which was a deliberate earlier decision (see [Upgrade notes](#upgrade-notes)).
+- **`.github/workflows/ci.yml`** - runs `ruff check`, the full pytest suite, and a `--help` smoke test on every push/PR, across Python 3.9/3.11/3.13. The version matrix specifically targets what F12 was about: the tool broke against a newer Scapy release with zero warning, and testing across Python versions is a cheap way to catch that class of drift before a user hits it instead of after.
+- A full `ruff` pass across `src/` surfaced zero unused-import/unused-variable/undefined-name findings (clean already) and a handful of legitimate style/exception-handling issues, all fixed: f-string modernization, `dict()` → `{}` literals, and - the one with actual behavioral value - `raise ... from None` in 4 places where an internal exception (a `netifaces` lookup failure, an `int()` parse failure) is deliberately translated into a clean, user-facing CLI error. Previously the original low-level exception's traceback would still print as "During handling of the above exception, another exception occurred", which is just noise for a CLI tool's error output.
+
+## Architecture changes
+
+- **Package layout**: the three top-level scripts (`mr.sip.py`, `sip_packet.py`, `utilities.py`) are now a proper package under `src/`, with `mr.sip.py` reduced to a two-line runner (`from src.cli import main`). No `pip install` step was introduced or removed — it is still invoked as `python3 mr.sip.py ...`, matching the free/open-source pentest-tool convention (clone and run in place).
+  - `src/core/` — `errors.py`, `logging_config.py`, `net_utils.py`, `sip_packet.py`, `threadpool.py`
+  - `src/modules/` — `nes.py`, `enum.py`, `das.py` (one `run(args, ...)` each, no module-level global state)
+  - `src/data/method/*.message`, `src/data/wordlists/*.txt` — resolved relative to the package's own location (`Path(__file__)`), not the current working directory, so the tool works correctly regardless of which directory it's run from.
+- **Logging**: `src/core/logging_config.py` replaces raw `print()` with the stdlib `logging` module — colored console output (`--verbose` now actually toggles DEBUG; previously a no-op), plus a plain-text, ANSI-stripped log file per run (`logs/mrsip_<timestamp>.log`), useful as pentest evidence/report material.
+- **Error handling**: `src/core/errors.py` introduces a typed exception hierarchy (`MrSipError` base; `PacketSendError`, `TemplateNotFoundError`, `InvalidInterfaceError`) caught once, centrally, in `cli.main()`. Replaces scattered `exit(0)` calls and ad-hoc `{"status": False}` dict returns that callers didn't always check (see F1).
+- **Shared thread pool**: `src/core/threadpool.py`'s `run_worker_pool()` is now used by both SIP-NES and SIP-ENUM, replacing duplicated per-module thread-setup code. Fixes F2 and F4 (below) in one place instead of two.
+- **Output layout**: `output/ip_list.txt` (SIP-NES's output / SIP-ENUM's default input) and `output/from.txt` moved out of the repo root into `output/`; `badges/`, `logo/`, `screenshots/` consolidated into `assets/`.
+
+## Correctness fixes
+
+Each entry is: what was wrong, why it's wrong (RFC citation where applicable), and how it was fixed. RFC 3261 section numbers were verified against the actual RFC text in `docs/rfcs/`, not general knowledge.
+
+- **F3 — SIP-NES `--mt=register`/`subscribe` sent an invalid Request-URI.** `register.message`'s `To:`/Request-URI both used `sip:[[to_user]]@server`, but the old code blanked `to_user` for register/subscribe ("toUser should be omitted" — original author's own comment), producing `sip:@server`, silently dropped by Asterisk. RFC 3261 §10.3 step 5 says the registrar reads the AOR from the `To:` header, not the Request-URI, and §10.2 says the Request-URI for REGISTER **MUST NOT** contain userinfo. Fixed in two parts: `to_user` is now paired with `from_user` (same identity) instead of blanked, and the Request-URI itself was changed to the bare `sip:[[server_ip]]` form.
+- **F7 — CANCEL template's `CSeq` used the wrong method.** `cancel.message` had `CSeq: 1 INVITE`; RFC 3261 §9.1 requires the CSeq method to match the request line (`CANCEL`). Fixed.
+- **F13 — `client_port` was a class attribute, not an instance attribute.** `sip_packet.client_port = random.randint(...)` was assigned once at class-body scope (present since the 2017 initial commit — confirmed via `git show`), so **every packet sent by the process for its entire lifetime shared the same source port**, regardless of target or message type. The port baked into each packet's `Via`/`Contact` headers therefore didn't match the actual UDP source port for most packets. Fixed by moving the assignment into `__init__`.
+- **F21 — unclosed `<` in the `From:` header of `bye.message`/`cancel.message`/`sp-invite.message`.** `From: [[from_user]] <sip:[[from_user]]@[[client_ip]];tag=[[tag_value]]` never closes the angle bracket, so `;tag=` ends up *inside* the URI instead of as a header parameter after `>` — invalid per RFC 3261 §25.1's `name-addr` grammar. Present since the 2017 initial commit. Caught by inspecting the *target* Asterisk server's own logs (`PJSIP syntax error exception when parsing 'From' header`) — invisible from the client side because SIP-DAS's flood mode never waits for a response. Fixed by adding the missing `>`; verified afterward that `sp-invite` gets a real `401` instead of being silently dropped.
+- **Socket send used the wrong source port.** The plain-socket (`-l`) sender called `connect()` without first `bind()`-ing to `client_port`; for a UDP socket this means the kernel picks a random ephemeral source port, so (same symptom as F13, different cause) the actual packet's source port didn't match what the SIP message claimed in `Via`/`Contact`. Fixed by binding to `client_port` before `connect()`.
+- **`check_ip_address` range validator only checked the first IP.** An indentation bug meant the second IP in an `a.b.c.d-w.x.y.z` range argument was never actually validated. Fixed.
+- **Client/Server misclassification when writing `output/ip_list.txt`.** A copy-paste bug (present since the Python 3 upgrade commit) wrote the literal string `"SIP Server"` even in the branch handling hosts classified as `"SIP Client"`. Fixed.
+- **NES crashed on a single target with a multi-entry `--from`/`--to` wordlist.** `target_networks` was only assigned in the `-`(range)/`/`(CIDR) branches, but the "custom wordlist" branch reused the same threaded code path and referenced it, raising `UnboundLocalError`. Found while reproducing baseline behavior for this changelog; already fixed as an incidental side effect of the restructure (`nes.py` now always assigns `target_networks` before it's used).
+
+## Security fixes
+
+- **CRLF / SIP header injection via wordlist-driven fields.** `fill_packet_data()` substituted `--from`/`--to`/`--ua`/`--su` values directly into the message template with no sanitization; a value containing `\r\n` could inject arbitrary extra headers or body content. Checked the tool's own design intent first (original 2017 README: messages are meant to be "grammatically compatible with SIP RFCs" specifically to evade anomaly detection) — injection capability was never an intended feature. Fixed by stripping `\r`/`\n` from every substituted value before it's written into the packet.
+- **SIP-DAS's Scapy/spoofing modes attempted to run without root and failed deep inside the send path.** Now checks `os.geteuid() == 0` up front and exits with one clean, actionable message ("...requires root privileges. Please run with sudo or use the -l flag.") instead of a raw traceback (or, pre-F1, a false "success").
+- **`threadpool.prompt_yes_no()` — the "N packages will be generated, continue? (y/n)" gate SIP-NES/SIP-ENUM show before a large cross-product run (the same gate F20 is about) — defaulted to "yes" when stdin was unavailable** (`EOFError`, e.g. run from a script, cron job, or CI). This was introduced during this session's own restructure, not inherited from upstream: the original code called bare `input()` with no exception handling, so a non-interactive run simply crashed - "does nothing" is a safer failure mode than "silently sends every packet without anyone confirming." Also inconsistent with the function's own next branch, where an unrecognized typed answer already defaults to `False` (abort). Fixed: `EOFError` now also returns `False`. Found via live testing against a real Docker/Asterisk target from a non-interactive shell — reproduced the silent-proceed behavior firsthand, then fixed it and re-verified the same command now aborts instead.
+
+## Reliability / concurrency fixes
+
+- **F1 — SIP-DAS reported success even when zero packets were actually sent.** `dosSmilator()` (now `das.py`) never checked `generate_packet()`'s return value; running an unprivileged Scapy/spoofing scenario reported `"N packet sent"` while every single send silently failed with a permission error. Reproduced live against the true baseline: `-r` mode with no root printed `"3 packet sent"` with **zero** actual packets on the wire. Fixed: `generate_packet()` now raises typed exceptions on failure, and `das.py` tracks and reports actual sent/failed counts plus the last error.
+- **F2 — concurrent worker output could interleave into merged, unparseable log lines.** Raw concurrent `print()` calls from SIP-NES/SIP-ENUM's worker threads could interleave mid-line under load. Proven with a live 9,000-concurrent-result stress test: **58 merged lines** under the old code vs. **0** after the fix. Fixed by routing all worker output through `logging`, whose handlers serialize writes internally.
+- **F4 — busy-wait race condition in the thread pool.** `while not workQueue.empty(): pass` doesn't guarantee every item has actually finished processing when the loop exits — a classic TOCTOU race, and it burns a full CPU core spinning. Fixed with `queue.join()`/`task_done()`, which blocks until every item is genuinely done.
+- **`output/ip_list.txt` write corruption under concurrent workers.** Multiple NES/ENUM worker threads could interleave writes to the same output file. Fixed with a `threading.Lock()` around the write + dedup step.
+
+## Performance fixes
+
+- **F8 — SIP-DAS re-read all four wordlist files from disk on every single loop iteration.** At the default flood counter (~1×10⁸), this is ~4×10⁸ redundant file opens. Fixed: wordlists are read once, up front.
+- **F16 — `defineTargetType()` re-read `servers.txt` from disk on every single successful scan result**, same class of bug as F8 but on the SIP-NES side. Fixed with a module-level cache.
+- **F20 — SIP-NES's default invocation queued up to 81,000,000 requests against a single host.** `--from`/`--to` default to the bundled 9,000-line wordlists (sized for SIP-ENUM/SIP-DAS); for any message type other than `register`/`subscribe`, SIP-NES cross-products them (`itertools.product`). The tool's own simplest documented usage — `--nes --tn=<ip> --mt=options`, no `--from`/`--to` override — therefore queued 9,000 × 9,000 requests. **This mechanism itself is intentional**, confirmed via `git log -S` against the original author's own code comment (`# both fromUser and toUser should be accepted` — identity-aware probing for operators who supply their own `--from`/`--to`), so it was not removed. The bug was the *default* wordlist size being inherited from SIP-ENUM/SIP-DAS. Fixed: when `--from`/`--to` are left at their default path (i.e., not explicitly overridden) and the message type isn't register/subscribe, SIP-NES sends a single generic probe per target instead of the full cross-product. Passing an explicit `--from`/`--to` of any size still gets the original, fully-intended cross-product behavior.
+
+## Usability / error-handling fixes
+
+- **F9 — `promisc()` unconditionally shelled out to `ip link set ... promisc ...`**, which is Linux-only syntax; on macOS/BSD this just failed with a misleading "you must run as root" warning even as root. Gated to Linux, with a clear debug-level explanation elsewhere (doesn't affect the actual spoofed-send capability, which doesn't depend on promiscuous mode).
+- **F11 — dead code.** Unused SIP status-code class constants removed from `sip_packet.py`.
+- **F12 — unpinned dependencies.** `requirements.txt` had no version bounds; this is exactly how the tool ended up broken against current Scapy (`conf.iface` changed from a `str` to a `NetworkInterface` object between versions — the very first thing that had to be patched to get the baseline running for this changelog's comparison). Pinned to tested ranges.
+- **F14 — SIP-DAS's `-m` (manual spoof) mode couldn't parse its own documented input.** `--il` is documented (usage text, README) as accepting SIP-NES's `output/ip_list.txt`, which is `ip;user_agent;type` per line — but `-m` mode read each line as a raw IP, producing a confusing DNS-lookup-style error. Fixed to take the first `;`-delimited field, which also still works for a plain one-IP-per-line file.
+- **F15 — `-c`/`--count` had no `type=int` validation** (unlike `--dp`/`--tc`, which do); an invalid value crashed with a raw traceback inside `das.py` instead of a clean CLI error. Fixed.
+- **F17 — stray local `import os`** inside `cli.main()` instead of at module top. Fixed.
+- **F18 — wordlist/manual-IP files opened with a bare `open()`** left to be closed by CPython refcounting rather than an explicit `with` block. Fixed.
+- **F19 — overly broad `except Exception` in `sip_packet.generate_packet()`.** Wrapped *any* exception — including real bugs like `TypeError`/`AttributeError` — as `PacketSendError`, which could silently mask programming errors as ordinary "packet send failed" outcomes. Narrowed to `except (OSError, UnicodeDecodeError)`, the actual failure modes a send/receive cycle can raise; anything else now surfaces as a real traceback. Verified with two targeted tests: a genuine `ValueError` (corrupted `client_port`) now propagates correctly, while a genuine network timeout still becomes a clean `PacketSendError`.
+- **CIDR range widened from `/24`-only to `/8`–`/32`,** and a related bug fixed where `/31`/`/32` scans found zero hosts (`ipaddress.hosts()` is empty for those masks) — now falls back to scanning every address in the network for those cases.
+- **A missing `--from`/`--to`/`--su`/`--ua`/`--il` wordlist file raised a raw `FileNotFoundError` traceback** in all three modules (NES, ENUM, DAS all read these with a bare `open()`), instead of the clean CLI error every other invalid-input case already gets. Caught centrally in `cli.main()`, next to the existing `MrSipError` handler, so all three modules get the fix from one place. Found via live testing against a real Docker/Asterisk target with an intentionally-missing wordlist path.
+- **SIP-DAS's `-r`/`-s`/`-m` (IP spoofing) silently did nothing when combined with `-l` (socket library mode)**, since spoofing requires raw Scapy packets that `-l` explicitly opts out of - no error, no warning, just a normal-looking run that never actually spoofed anything. Now logs a warning up front telling the user to drop `-l` if they actually want the spoofing to take effect. Found via live testing: `-m --il=... -l` "succeeded" while silently ignoring the manual IP list.
+- **The "N packages will be generated, continue? (y/n)" confirmation prompt required pressing Enter after y/n**, because it used `input()`, which is line-buffered. Replaced with a single-keypress read via `termios`/`tty` on POSIX (falls back to line input elsewhere). First attempt used raw mode (`tty.setraw`), which turned out to be the wrong tool here - raw mode also disables terminal echo *and* output post-processing (CR/LF translation), which produced doubled/misaligned output on a real terminal (confirmed live). Switched to cbreak mode (`tty.setcbreak`), which only disables line buffering and leaves echo/output processing alone - the keypress is echoed once by the terminal itself, and a stray buffered byte (e.g. a leftover Enter from habit) is explicitly flushed before reading so it can't bleed into the next prompt. If stdin isn't an interactive TTY (piped, scripted, CI), it still raises the same `EOFError` the fail-safe fix above already handles - refuses to proceed rather than guessing. Note this is a behavior change for any script that used to auto-confirm via `echo y | mr.sip.py ...`: piped input is no longer treated as a real "yes," since single-keypress reads require an actual TTY.
+- **SIP-DAS's progress bar was a hand-rolled `\r`-based implementation** (`net_utils.printProgressBar()`) that didn't reliably overwrite its own line outside a raw interactive TTY (e.g. when output is piped or copy-pasted from scrollback), and used `end=" "` instead of `end=""`, leaving a stray trailing space. Replaced with `tqdm` (new dependency, pinned `>=4.60,<5`), which handles single-line overwriting correctly across terminals/redirection and reports ETA/rate for free.
+- **Scapy mode's `send(pkt, iface=conf.iface)` call was passing a dead parameter.** Confirmed against Scapy's own source (`sendrecv.py`): `send()` is an L3 call that picks the outgoing interface from the routing table, and explicitly deletes an `iface` kwarg after emitting a `SyntaxWarning` - the parameter has never done anything here. It was also spamming one `"Sent 1 packets."` line per packet (Scapy's default `verbose=True`), which broke the progress bar's single-line rendering. Removed the dead `iface` kwarg and added `verbose=False`. `--if`/`--interface` is unaffected - it still works via the global `conf.iface` that Scapy's own routing-table lookup already consults (set in `cli.py`), which was never the thing this dead per-call kwarg controlled.
+
+## Known limitation left open
+
+- **F6 — SIP-ENUM's 401/403 = "extension exists" heuristic.** Produces false positives against servers that reject *every* unmatched request the same way regardless of the extension (e.g. modern PJSIP's default `endpoint_identifier_order` behavior). RFC 3261 doesn't directly support or refute the heuristic either way; a real fix needs a broader redesign of how SIP-ENUM tells "exists but needs auth" apart from "rejected regardless," so it was left open rather than patched superficially. **Independently confirmed to be an environment-specific limitation, not a broken heuristic**: tested against a real chan_sip-based Asterisk (Trixbox CE 2.8, via QEMU) with 3 real extensions (one secretless, two with a secret) plus one nonexistent extension — SIP-ENUM reported exactly 3/3 real extensions with the correct auth-required/not-required split, and zero false positives for the nonexistent one. The heuristic works exactly as originally designed against classic chan_sip; it only breaks against PJSIP.
+
+## Testing
+
+Three independent verification passes, against two structurally different SIP stacks:
+
+1. **Docker / Asterisk 22 (PJSIP)** — `andrius/asterisk:latest`, 3 PJSIP endpoints, digest auth. Two full regression rounds covering all three modules (single host, IP range, CIDR; small and full 9,000-entry wordlists; all 7 message types; all 3 spoofing modes; socket and Scapy protocols). The second round included a live 9,000-concurrent-result stress test proving F2's fix (0 merged log lines vs. 58 previously).
+2. **QEMU / Trixbox CE 2.8 (classic chan_sip, Asterisk 1.6)** — a real third-party lab image provided outside this repo, running under full software emulation (`qemu-system-x86_64 -M pc -accel tcg -cpu qemu64`, since there's no hardware virtualization for x86 on the Apple Silicon host it ran on). Used specifically to test SIP-ENUM's heuristic against a structurally different (non-PJSIP) target, per the F6 note above.
+3. **Baseline-vs-current comparison** (this session) — the true pre-refactor upstream code (commit `bdd98ad`) was checked out into an isolated `git worktree` and run against the same Docker target as the current code, scenario-for-scenario. See the next section.
+
+## Baseline vs. current: reproducible comparison
+
+Baseline = commit `bdd98ad` (pre-refactor upstream), patched with the one-line Scapy compat shim (`str(conf.iface)`) it needs just to launch against a modern Scapy install — otherwise it crashes immediately with `TypeError: argument 1 must be str, not NetworkInterface`, unrelated to any logic in this changelog. Both versions were run against the same live Docker/Asterisk target.
+
+| Scenario | Baseline (`bdd98ad`) | Current |
+|---|---|---|
+| Launch with a modern Scapy install | ❌ Crashes (`TypeError`) without a manual patch | ✅ Works out of the box |
+| SIP-NES, single host + multi-entry `--from`/`--to` | ❌ Crashes (`UnboundLocalError: target_networks`) | ✅ Correct (16/16 expected results) |
+| SIP-NES `--mt=register` | ❌ 0 results, 5s timeout (F3) | ✅ 1/1 correct, <0.01s |
+| SIP-DAS, socket mode | ✅ Correct | ✅ Correct — no behavior change |
+| SIP-DAS, unprivileged Scapy `-r` | ❌ Reports `"3 packet sent"`; **0** actually sent (F1) | ✅ Clean upfront error, no false report |
+| SIP-ENUM, 401/403 heuristic | Same false positive on a nonexistent extension | Same — **unchanged on purpose** (F6, documented, not a regression) |
+
+## Upgrade notes
+
+- Invocation is unchanged: `python3 mr.sip.py --nes|--enum|--das ...`. No `pip install` step, before or after.
+- `output/ip_list.txt` and `output/from.txt` replace the old repo-root `ip_list.txt`/`from.txt` paths; `-i/--ip-save-list` now defaults to `output/ip_list.txt`.
+- If anything outside this repo imported the old flat modules directly (`import sip_packet`, `import utilities`, etc.) rather than going through `mr.sip.py`, those import paths no longer exist — the equivalents now live under `src.core`/`src.modules`. The CLI surface itself did not change.
+- `--verbose`/`-v` now actually does something (enables DEBUG-level logging); previously it was a no-op.
+- `README.md` had a few stale technical claims fixed to match current behavior: a "Mr.SIP **Pro** Installation" heading that actually described installing the public tool, a documented `python3 mr.sip.py –usage` invocation that isn't a real flag, a "default interface is eth0" claim (it's whatever Scapy's `conf.iface` auto-detects), and a general-usage example listing Pro-only flags (`--sniff`, `--crack`, `--vscan`, ...) as if they existed in this repo. Mr.SIP Pro's own marketing/feature copy elsewhere in the README was left untouched - that's the vendor's content, not a technical-accuracy issue with this repo's code.

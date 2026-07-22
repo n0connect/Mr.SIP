@@ -1,166 +1,196 @@
-[![Black Hat Arsenal](https://github.com/meliht/Mr.SIP/blob/master/badges/BlackHatArsenalEU2019badge.svg)](https://www.blackhat.com/eu-19/arsenal/schedule/#mrsip-sip-based-audit--attack-tool-18190)
-[![Black Hat Arsenal](https://github.com/meliht/Mr.SIP/blob/master/badges/BlackHatArsenalUSA2019badge.svg)](https://www.blackhat.com/us-19/arsenal/schedule/index.html#mrsip-sip-based-audit--attack-tool-16866)
-[![Black Hat Arsenal](https://github.com/meliht/Mr.SIP/blob/master/badges/BlackHatArsenalAsia2019badge.svg)](https://www.blackhat.com/asia-19/arsenal/schedule/index.html#mrsip-sip-based-audit-and-attack-tool-14381)
-[![Offzone Moscow](https://github.com/meliht/Mr.SIP/blob/master/badges/OffzoneMoscow2019badge.svg)](https://offzone.moscow/report/mr-sip-sip-based-audit-and-attack-tool/)
-[![DEF CON 28](https://github.com/meliht/Mr.SIP/blob/master/badges/Defcon28badge.svg)](https://www.defcon.org/html/defcon-safemode/dc-safemode-speakers.html#Tas)
-[![Black Hat Arsenal](https://github.com/meliht/Mr.SIP/blob/master/badges/BlackHatArsenalEU2020badge.svg)](https://www.blackhat.com/eu-20/arsenal/schedule/index.html#mrsip-sip-based-audit-and-attack-tool-21775)
-_________________________________________
-# < Mr.SIP: SIP-Based Audit and Attack Tool! >
- -------------------------------------------
- 
- ## What is Mr.SIP (public version)?
+<div align="center">
 
-Mr.SIP is a simple console based SIP-based Audit and Attack Tool. Originally it was developed to be used in academic work to help developing novel SIP-based DDoS attacks and then as an idea to convert it to a fully functional SIP-based penetration testing tool. So far Mr SIP resulted several academic research papers, and journal articles. Mr.SIP can also be used as SIP client simulator and SIP traffic generator.
+# Mr.SIP
 
-In the current state, public version of Mr.SIP contains 3 modules; SIP-NES (network scanner), SIP-ENUM (enumerator), SIP-DAS (DoS attack simulator). It detects SIP components and existing users on the network and generate various TDoS attacks. Mr.SIP has some competitive features including; high performance multi-threading, powerful IP spoofing engine and  smart SIP message generation. We have seen practitioners also use Mr.SIP as a client simulator and traffic generator.
+**SIP-Based Audit and Attack Tool**
 
-## Mr.SIP Public Version Modules
-* Network Scanner detects SIP components, manufacturer and version information. 
-* SIP Enumerator identifies valid SIP users and authentications information. 
-* You can performs TDoS-based attacks using DoS Attack Simulator which has a powerful IP spoofer.
+[![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 
-## What is Mr.SIP Pro (private version)? 
-Mr.SIP Pro is the most comprehensive attack oriented VoIP product ever! In the Pro version, we have added 7 more modules. We also extended the public modules with new features. In Pro version, it contains 10 modules in 3 categories; Information Gathering, Vulnerability Scanning and Offensive Modules. There are 2 helper components called: IP Spoofing Engine and Message Generator. Also in our roadmap; there are 5 new attack modules. In addition, we will develop an easy-to-use GUI. 
+[![Black Hat Arsenal](assets/badges/BlackHatArsenalEU2019badge.svg)](https://www.blackhat.com/eu-19/arsenal/schedule/#mrsip-sip-based-audit--attack-tool-18190)
+[![Black Hat Arsenal](assets/badges/BlackHatArsenalUSA2019badge.svg)](https://www.blackhat.com/us-19/arsenal/schedule/index.html#mrsip-sip-based-audit--attack-tool-16866)
+[![Black Hat Arsenal](assets/badges/BlackHatArsenalAsia2019badge.svg)](https://www.blackhat.com/asia-19/arsenal/schedule/index.html#mrsip-sip-based-audit-and-attack-tool-14381)
+[![Black Hat Arsenal](assets/badges/BlackHatArsenalEU2020badge.svg)](https://www.blackhat.com/eu-20/arsenal/schedule/index.html#mrsip-sip-based-audit-and-attack-tool-21775)
+[![Offzone Moscow](assets/badges/OffzoneMoscow2019badge.svg)](https://offzone.moscow/report/mr-sip-sip-based-audit-and-attack-tool/)
+[![DEF CON 28](assets/badges/Defcon28badge.svg)](https://www.defcon.org/html/defcon-safemode/dc-safemode-speakers.html#Tas)
 
-Mr.SIP is a tool that should be in every pentester's and red teamer's toolbox. It detects SIP components and existing users on the network, intervenes and filters and manipulates call information, reports known vulnerabilities and exploits, develops various TDoS attacks, including status-controlled advanced ones and breaks user passwords. It also has many innovative and competitive features. For example; high performance multi-threading, IP spoofing, smart SIP message generation, self-hiding and intervention skills. Mr.SIP has also customisable scenario development framework for stateful attacks. 
+</div>
 
-**Information Gathering Modules:**
-* SIP-NES (network scanner)
-* SIP-ENUM (SIP enumerator)
-* SIP-SNIFF (SIP traffic sniffer)
-* SIP-EAVES (call eavesdropper)
+---
 
-**Vulnerability Scanning:**
-* SIP-VSCAN (vulns & exploit scanner)
+Mr.SIP is a simple, console-based SIP audit and attack tool. It was originally developed for academic work on novel SIP-based DDoS attacks, and evolved into a fully functional SIP-based penetration testing tool. It has since been cited in several academic papers and journal articles, and can also be used as a SIP client simulator and traffic generator.
 
-**Offensive Modules:**
-* SIP-DAS (DoS attack simulator)
-* SIP-MANMID (MiTM attacker)
-* SIP-ASP (attack scenario player)
-* SIP-CRACK (digest authentication cracker)
-* SIP-SIM (signaling manipulator)
+This public repository ships **3 modules** — network scanning, user enumeration, and DoS attack simulation. **[Mr.SIP Pro](#mrsip-pro-private-version)** extends this with more modules and a web GUI.
 
-## Mr.SIP Pro 10 Modules (more to come)
-* Network Scanner detects SIP components, manufacturer and version information. 
-* SIP Enumerator identifies valid SIP users and authentications information. 
-* You can capture SIP traffic using SIP Sniffer which also supports MiTM attack. 
-* Eavesdropper allows you listen the SIP traffic and collect the call-specific information and it supports MiTM attack too.
-* SIP-VSCAN detects and reports known vulnerabilities and exploits. 
-* You can performs TDoS-based attacks, ush DoS Attack Simulator which has a powerful IP spoofer.
-* We have seperated MiTM Attacker which allows to act as a proxy in the network.
-* Attack Scenario Player allows to perform stateful SIP scenarios, and it has pre-defined attack scenarios, you can also add more. 
-* By using SIP Password Cracker you can performs real-time digest authentication cracking by intervening which also support MiTM attack too.
-* Signaling Manipulator allows generating custom SIP messages helping to perform caller-id spoofing attacks.
+## Table of Contents
 
-## Roadmap of Mr.SIP Pro: 
-We will add 5 new modules along with a friendly GUI. We will add fuzzing, media sniffing, media injection/manipulation, robocall (SPIT) and DTMF tone stealing features soon. 
+- [Public Version Modules](#public-version-modules)
+- [Installation](#installation)
+- [Usage](#usage)
+  - [SIP-NES](#sip-nes--network-scanner)
+  - [SIP-ENUM](#sip-enum--enumerator)
+  - [SIP-DAS](#sip-das--dos-attack-simulator)
+- [Development](#development)
+- [Mr.SIP Pro (private version)](#mrsip-pro-private-version)
+- [Media Mentions and Citations](#media-mentions-and-citations)
+- [References](#references)
 
-## How to Support Mr.SIP 
-Please give star in our Github, please follow our empty Twitter account for updates. And, please subscribe our Youtube channel as we need 100 subscribers to update the URL.
+## Public Version Modules
 
-* Website: (https://mrsip.pro/)
-* Gitlab: (https://mrsip.gitlab.io)
-* Twitter: (https://twitter.com/mrsip_official)
-* Youtube: (https://www.youtube.com/channel/UCgrI4qYdhrlPjxG8OtxqSkw)
+| Module | Purpose |
+|---|---|
+| **SIP-NES** (Network Scanner) | Detects SIP components on a network, along with manufacturer/product/version information. |
+| **SIP-ENUM** (Enumerator) | Identifies valid SIP users and their authentication requirements. |
+| **SIP-DAS** (DoS Attack Simulator) | Performs TDoS-based attacks, with a powerful IP-spoofing engine. |
 
-If you want you get more out of Mr.SIP, check out PRO version ---> https://mrsip.gitlab.io/
+Competitive features across all three: high-performance multithreading, IP spoofing, and smart SIP message generation.
 
-## Mr.SIP Pro Installation
-Mr.SIP is a console based Python3 tool. In order to run Mr.SIP in your Kali, you need install some python libraries. Please see help and usage for full instructions. 
+## Installation
 
-```
+Mr.SIP is a console-based Python 3 tool - no `pip install` step, just clone and run.
+
+```bash
 pip install -r requirements.txt
-apt-get install python-scapy
+apt-get install python-scapy   # Linux only
 ```
-```
+
+```bash
 python3 mr.sip.py --help
-python3 mr.sip.py –usage
+python3 mr.sip.py --version
 ```
 
-##  Mr.SIP Usages: 
+## Usage
 
-**General Usage:** 
-```
-python mr.sip.py [--nes|--enum|--das| --sniff| --manmid| --eaves| --crack| --sim| --asp| --vscan] [parameters]
-```
+**General usage** (this repo contains 3 modules; [Mr.SIP Pro](#mrsip-pro-private-version) adds more):
 
-**Global Default Parameters If Not Given:** \
-Default interface (--if=)  is eth0 \
-Default thread count (--tc=) is 10 \
-Default destination port (--dp=) is 5060 
-
-**SIP-NES Usage:** 
-```
-python3 mr.sip.py --nes --tn=<target_IP> --mt=options --from=<from_extention> --to=<to_extension>
-python3 mr.sip.py --nes --tn=<target_network_range> --mt=invite --from=<from_extention> --to=<to_extension>
-python3 mr.sip.py --nes --tn <target_network_address> --mt=subscribe --from=<from_extention> --to=<to_extension>
+```bash
+python3 mr.sip.py [--nes|--enum|--das] [parameters]
 ```
 
-NOTE-1: _<target_network_range>_ should be like `192.168.1.10-192.168.1.20` \
-NOTE-2: _<target_network>_ should be like `192.168.1.0` \
-NOTE-3: You can specify the output by `-i <output_file_name>`. By default the output will be written to _ip_list.txt_ file which is already exists in the repo. _SIP-ENUM_ uses that file as an input. \
-NOTE-4: Default destination (--dp) is _port 5060_, if not given. \
-NOTE-5: Default message type (--mt=) is _options_, if not given. \
-NOTE-6: Supported message types: _options_, _invite_, _subscribe_, _register_ \
-NOTE-7: _from_ and _to_ values can be arbitrary extension number.
+**Global defaults:**
 
-**Output of SIP-NES:** 
+| Parameter | Default |
+|---|---|
+| `--if` (interface) | auto-detected by Scapy (`conf.iface`) |
+| `--tc` (thread count) | `10` |
+| `--dp` (destination port) | `5060` |
 
-![Alt text](/screenshots/SIP-NES-scan.png?raw=true "SIP-NES scan output")
+### SIP-NES — Network Scanner
 
-**SIP-ENUM Usage:** 
-```
-python3 mr.sip.py --enum --from=from.txt 
-python3 mr.sip.py --enum --tn=<target_IP> --from=from.txt
+```bash
+python3 mr.sip.py --nes --tn=<target_IP> --mt=options --from=<from_extension> --to=<to_extension>
+python3 mr.sip.py --nes --tn=<target_network_range> --mt=invite --from=<from_extension> --to=<to_extension>
+python3 mr.sip.py --nes --tn=<target_network_address> --mt=subscribe --from=<from_extension> --to=<to_extension>
 ```
 
-NOTE-1: If target network (--tn) is not given, SIP-ENUM uses _ip_list.txt_ file as an input which is output of SIP-NES. \
-NOTE-2: Default from user (--from=) is _fromUser.txt_ \
-NOTE-3: Default message type (--mt) is _subscribe_, if not given.
+| Note | |
+|---|---|
+| `<target_network_range>` | e.g. `192.168.1.10-192.168.1.20` |
+| `<target_network_address>` | e.g. `192.168.1.0` (also accepts CIDR, e.g. `192.168.1.0/24`) |
+| Output (`-i <file>`) | Defaults to `output/ip_list.txt`, which SIP-ENUM reads as input. |
+| `--mt` default | `options` |
+| Supported message types | `options`, `invite`, `subscribe`, `register` (any `.message` template in `src/data/method/` works) |
+| `--from` / `--to` | Any extension number, or a wordlist file (defaults to the bundled 9000-line lists) |
 
-**Output of SIP-ENUM:** 
+<div align="center">
+<img src="assets/screenshots/SIP-NES.png" alt="SIP-NES scan output" width="700">
+</div>
 
-![Alt text](/screenshots/SIP-ENUM-scan.png?raw=true "SIP-ENUM scan output")
+### SIP-ENUM — Enumerator
 
-
-**SIP-DAS Usage:** \
-By using scapy library (IP spoofing is supported) 
-```
-python3 mr.sip.py --das -mt=invite -c <package_count> --tn=<target_IP> -r 
-python3 mr.sip.py --das --mt=invite -c <package_count> --tn=<target_IP> -s 
-python3 mr.sip.py --das --mt=invite -c <package_count> --tn=<target_IP> -m --il=ip_list.txt
-```
-
-By using socket library (but doesn't support IP spoofing)
-```
-python3 mr.sip.py --das -mt=invite -c <package_count> --tn=<target_IP> -r -l
-python3 mr.sip.py --das --mt=invite -c <package_count> --tn=<target_IP> -s -l 
-python3 mr.sip.py --das --mt=invite -c <package_count> --tn=<target_IP> -m --il=ip_list.txt -l
+```bash
+python3 mr.sip.py --enum --from=output/from.txt
+python3 mr.sip.py --enum --tn=<target_IP> --from=output/from.txt
 ```
 
-NOTE-1: Default to users (--to=) is _toUser.txt_ \
-NOTE-2: Default from users (--from=) is _fromUser.txt_ \
-NOTE-3: Default user-agent (--ua=) is _userAgent.txt_ \
-NOTE-4: Default packet counter (-c=) is flood
+| Note | |
+|---|---|
+| `--tn` omitted | Reads `output/ip_list.txt` (SIP-NES's output) as the target list. |
+| `--from` default | The bundled `fromUser.txt` |
+| `--mt` default | `subscribe` |
 
-**Output of SIP-DAS:** 
+<div align="center">
+<img src="assets/screenshots/SIP-ENUM.png" alt="SIP-ENUM scan output" width="700">
+</div>
 
-![Alt text](/screenshots/SIP-DAS-attack.png?raw=true "SIP-DAS attack output")
+#### Heuristic Bypass Warning
+When an extension does not require authentication (a critical security bypass), Mr.SIP highlights the finding in red to alert the security tester immediately:
+
+<div align="center">
+<img src="assets/screenshots/SIP-ENUM2.png" alt="SIP-ENUM bypass detection" width="700">
+</div>
+
+### SIP-DAS — DoS Attack Simulator
+
+With Scapy (IP spoofing supported):
+
+```bash
+python3 mr.sip.py --das --mt=invite -c <package_count> --tn=<target_IP> -r
+python3 mr.sip.py --das --mt=invite -c <package_count> --tn=<target_IP> -s
+python3 mr.sip.py --das --mt=invite -c <package_count> --tn=<target_IP> -m --il=output/ip_list.txt
+```
+
+With plain sockets (`-l`, no spoofing support):
+
+```bash
+python3 mr.sip.py --das --mt=invite -c <package_count> --tn=<target_IP> -r -l
+python3 mr.sip.py --das --mt=invite -c <package_count> --tn=<target_IP> -s -l
+python3 mr.sip.py --das --mt=invite -c <package_count> --tn=<target_IP> -m --il=output/ip_list.txt -l
+```
+
+| Note | |
+|---|---|
+| `--to` / `--from` / `--ua` defaults | Bundled `toUser.txt` / `fromUser.txt` / `userAgent.txt` |
+| `-c` default | Flood (no limit); `-c 0` explicitly means flood indefinitely |
+| `--pps <rate>` | Throttle to at most this many packets/sec (default: unthrottled) |
+| `--mtu <bytes>` | Fragments packets to the given MTU (Scapy mode only) |
+| `-r` / `-s` / `-m` | Spoof source IP randomly / from within the target's subnet / from a manual list (`--il`) |
+
+<div align="center">
+<img src="assets/screenshots/SIP-DAS.png" alt="SIP-DAS attack output" width="700">
+</div>
+
+## Development
+
+This repo has a real test suite and CI - see [CHANGELOG.md](CHANGELOG.md) for the full technical history of fixes and hardening work.
+
+```bash
+pip install -r tests/requirements-dev.txt
+pytest              # 141 tests, network-free, runs in well under a second
+ruff check src/ tests/ mr.sip.py
+```
+
+---
+
+## Mr.SIP Pro (private version)
+
+Mr.SIP Pro is the most comprehensive attack-oriented VoIP product available. It extends the public modules with new features and adds 7 more, for **10 modules across 3 categories** (Information Gathering, Vulnerability Scanning, Offensive), plus 2 helper components (IP Spoofing Engine, Message Generator) and an easy-to-use GUI.
+
+Mr.SIP is a tool that should be in every pentester's and red teamer's toolbox: it detects SIP components and existing users on a network, intercepts and manipulates call information, reports known vulnerabilities and exploits, runs various TDoS attacks including status-controlled advanced ones, and cracks user passwords. It also supports a customizable scenario-development framework for stateful attacks.
+
+| Category | Modules |
+|---|---|
+| **Information Gathering** | SIP-NES (network scanner) · SIP-ENUM (enumerator) · SIP-SNIFF (traffic sniffer, MiTM-capable) · SIP-EAVES (call eavesdropper, MiTM-capable) |
+| **Vulnerability Scanning** | SIP-VSCAN (vulnerability & exploit scanner) |
+| **Offensive** | SIP-DAS (DoS attack simulator) · SIP-MANMID (MiTM attacker) · SIP-ASP (attack scenario player) · SIP-CRACK (real-time digest authentication cracker) · SIP-SIM (signaling manipulator, Caller-ID spoofing) |
+
+**Roadmap:** 5 more modules and a friendly GUI are planned, adding fuzzing, media sniffing, media injection/manipulation, robocall (SPIT), and DTMF tone stealing.
+
+Get more out of Mr.SIP → **[mrsip.gitlab.io](https://mrsip.gitlab.io/)**
 
 ## Media Mentions and Citations
-* Mr.SIP is evolving and actively being used by researchers and practitioners.
-* Shared on various popular forums and news sources, including BlackHat's homepage. [Here](https://www.blackhat.com/latestintel/01222019-discover-new-tools.html)
-* Cited in Cisco publications.
-* Used in Caller-ID spoofing tests as part of Turkish Standards Institute (TSE) collaboration for national VoIP standard setting studies.
-* Used in various prestigious academic publications. (Elsevier, IEEE)
+
+- Mr.SIP is evolving and actively used by researchers and practitioners.
+- Shared on various popular forums and news sources, including [BlackHat's homepage](https://www.blackhat.com/latestintel/01222019-discover-new-tools.html).
+- Cited in Cisco publications.
+- Used in Caller-ID spoofing tests as part of a Turkish Standards Institute (TSE) collaboration for national VoIP standard-setting studies.
+- Used in various prestigious academic publications (Elsevier, IEEE).
 
 ## References
-* I. M. Tas, B.G.Unsalver, and S. Baktir, "A Novel SIP Based Distributed Reflection Denial-of-Service Attack and an Effective Defense Mechanism",
-IEEE Access 2020-25937, Vol. 8, pp. 112574–112584, June. 2020 [Read More](https://ieeexplore.ieee.org/abstract/document/9114982)
-* I. M. Tas, B. Ugurdogan, and S. Baktir, ‘‘Novel Session Initiation Protocol Based Distributed Denial-of-Service Attacks and Effective Defense
-Strategies,’’ Computers & Security, Vol. 63, pp. 29–44, Nov. 2016 [Read More](https://www.sciencedirect.com/science/article/pii/S0167404816300980)
-* [Defcon28 2020](https://www.defcon.org/html/defcon-safemode/dc-safemode-speakers.html#Tas)
-* [BlackHat EU 2019](https://www.blackhat.com/eu-19/arsenal/schedule/index.html#mrsip-sip-based-audit--attack-tool-18190)
-* [BlackHat USA 2019](https://www.blackhat.com/us-19/arsenal/schedule/#mrsip-sip-based-audit--attack-tool-16866)
-* [Offzone Moscow 2019](https://www.offzone.moscow/report/mr-sip-sip-based-audit-and-attack-tool/)
-* [BlackHat Asia 2019](https://www.blackhat.com/asia-19/arsenal/schedule/index.html#mrsip-sip-based-audit-and-attack-tool-14381)
+
+- I. M. Tas, B. G. Unsalver, and S. Baktir, "A Novel SIP Based Distributed Reflection Denial-of-Service Attack and an Effective Defense Mechanism," *IEEE Access*, vol. 8, pp. 112574–112584, Jun. 2020. [Read more](https://ieeexplore.ieee.org/abstract/document/9114982)
+- I. M. Tas, B. Ugurdogan, and S. Baktir, "Novel Session Initiation Protocol Based Distributed Denial-of-Service Attacks and Effective Defense Strategies," *Computers & Security*, vol. 63, pp. 29–44, Nov. 2016. [Read more](https://www.sciencedirect.com/science/article/pii/S0167404816300980)
+- [DEF CON 28 (2020)](https://www.defcon.org/html/defcon-safemode/dc-safemode-speakers.html#Tas)
+- [Black Hat EU 2019](https://www.blackhat.com/eu-19/arsenal/schedule/index.html#mrsip-sip-based-audit--attack-tool-18190)
+- [Black Hat USA 2019](https://www.blackhat.com/us-19/arsenal/schedule/#mrsip-sip-based-audit--attack-tool-16866)
+- [Black Hat Asia 2019](https://www.blackhat.com/asia-19/arsenal/schedule/index.html#mrsip-sip-based-audit-and-attack-tool-14381)
+- [Offzone Moscow 2019](https://www.offzone.moscow/report/mr-sip-sip-based-audit-and-attack-tool/)

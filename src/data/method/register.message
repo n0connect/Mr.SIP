@@ -1,4 +1,4 @@
-REGISTER sip:[[to_user]]@[[server_ip]] SIP/2.0
+REGISTER sip:[[server_ip]] SIP/2.0
 Via: SIP/2.0/UDP [[client_ip]]:[[client_port]];branch=[[branch_value]];rport
 Max-Forwards: 70
 To: [[to_user]] <sip:[[to_user]]@[[server_ip]]>

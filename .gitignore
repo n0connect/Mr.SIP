@@ -102,3 +102,23 @@ ENV/
 
 # mypy
 .mypy_cache/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE / editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Internal notes / research (not for public repo)
+docs/
+CLAUDE.md
+
+# Local scratch / runtime artifacts
+*.local
+.env.local
