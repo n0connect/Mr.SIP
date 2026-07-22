@@ -34,9 +34,9 @@ default wordlists.
 ENUM_USAGE = """python3 mr.sip.py --enum --from=output/from.txt
 python3 mr.sip.py --enum --tn=<target_IP> --from=output/from.txt
 """
-DAS_USAGE = """python3 mr.sip.py --das --mt=invite -c <package_count> --tn=<target_IP> -r
-python3 mr.sip.py --das --mt=invite -c <package_count> --tn=<target_IP> -s
-python3 mr.sip.py --das --mt=invite -c <package_count> --tn=<target_IP> -m --il=output/ip_list.txt
+DAS_USAGE = """python3 mr.sip.py --das --mt=invite -c <packet_count> --tn=<target_IP> -r
+python3 mr.sip.py --das --mt=invite -c <packet_count> --tn=<target_IP> -s
+python3 mr.sip.py --das --mt=invite -c <packet_count> --tn=<target_IP> -m --il=output/ip_list.txt
 """
 
 
@@ -64,16 +64,36 @@ def build_parser() -> ArgumentParser:
     group.add_argument("--il", "--manual-ip-list", dest="manual_ip_list", help="IP list file.")
     group.add_argument("--if", "--interface", dest="interface", help="Interface to work on.")
     group.add_argument("--tc", "--thread-count", dest="thread_count", type=net_utils.positive_int, default=10, help="Number of threads running (minimum 1). Default is 10.")
-    group.add_argument("--mtu", dest="mtu", type=int, help="MTU size for packet fragmentation (Scapy mode only).")
+    group.add_argument("--mtu", dest="mtu", type=net_utils.mtu_size, help="MTU size for packet fragmentation (Scapy mode only, minimum 68 bytes).")
     group.add_argument(
         "--pps", "--packets-per-second", dest="pps", type=net_utils.positive_float, default=None,
         help="SIP-DAS: throttle to at most this many packets per second. Default is unthrottled (as fast as possible).",
     )
+    group.add_argument(
+        "--rt", "--response-timeout", dest="response_timeout", type=net_utils.positive_float, default=None,
+        help="SIP-NES/SIP-ENUM: seconds to wait for a response before giving up on a single probe. "
+             "Default is 5. Lower it (e.g. --rt 1) to speed up scanning a large range where most "
+             "hosts won't respond at all - each non-responsive probe otherwise blocks its worker "
+             "thread for the full timeout. SIP-ENUM/SIP-DAS's liveness pre-check (see "
+             "--skip-live-check) normally uses its own short fixed timeout regardless of this "
+             "flag; explicitly setting --rt also raises the pre-check's patience to match, so a "
+             "genuinely slow-but-live target isn't wrongly skipped as unreachable.",
+    )
 
+    group.add_argument(
+        "--skip-live-check", action="store_true", dest="skip_live_check", default=False,
+        help="SIP-ENUM/SIP-DAS: skip the short liveness probe normally sent before enumerating/flooding "
+             "a target. SIP-ENUM enumerates every target as given (no skipping non-responsive ones); "
+             "SIP-DAS floods without the initial 'target didn't respond' warning.",
+    )
+    group.add_argument(
+        "-y", "--yes", action="store_true", dest="assume_yes", default=False,
+        help="Automatically answer yes to all confirmation prompts (non-interactive mode).",
+    )
     group.add_argument("-v", "--verbose", action="store_true", dest="verbose", default=False, help="Enable verbose (DEBUG-level) logging.")
     group.add_argument("-i", "--ip-save-list", dest="ip_list", default="output/ip_list.txt", help="Output file to save live IP address.\n Default is output/ip_list.txt.")
     group.add_argument(
-        "-c", "--count", dest="counter", type=int, default=99999999,
+        "-c", "--count", dest="counter", type=net_utils.non_negative_int, default=99999999,
         help="Counter for how many messages to send. 0 means flood indefinitely (SIP-DAS only). If not specified, default is flood.",
     )
     group.add_argument("-l", "--lib", action="store_true", dest="library", default=False, help="Use Socket library (no spoofing), default is Scapy")
@@ -89,13 +109,25 @@ def main():
     logger = logging_config.setup_logging(args.verbose)
 
     print(BANNER if theme.supports_color() else theme.strip_ansi(BANNER))
-    if args.interface is not None:
-        conf.iface = args.interface
 
     start = time.time()
     show_time = True
 
     try:
+        if args.interface is not None:
+            try:
+                conf.iface = args.interface
+            except ValueError as e:
+                # Scapy's own conf.iface setter raises a raw ValueError for
+                # an unknown interface name - previously unguarded (this
+                # assignment ran before the try: block existed here), so a
+                # bad --if crashed with a full traceback through scapy's
+                # internals instead of the clean error every other bad-input
+                # case gets. A typo'd interface name is an easy, common
+                # mistake (see docs/usage-guide.md's own discussion of how
+                # to find the right --if value).
+                raise errors.InvalidInterfaceError(str(e)) from e
+
         # Upfront root privilege verification for Scapy DoS simulation
         if args.dos_attack_simulator and not args.library and hasattr(os, "geteuid") and os.geteuid() != 0:
             raise errors.MrSipError("Scapy raw packet mode (and IP spoofing) requires root privileges. Please run with sudo or use the -l flag.")
@@ -110,8 +142,8 @@ def main():
             client_ip, client_netmask = net_utils.get_client_network_info(conf.iface)
             das.run(args, conf, client_ip, client_netmask)
         else:
-            logger.info("No module is specified.")
-            logger.info("If you want you get more out of Mr.SIP, check out PRO version ---> https://mrsip.gitlab.io/ ")
+            logger.info("No module specified.")
+            logger.info("To get more out of Mr.SIP, check out the PRO version: https://mrsip.gitlab.io/")
             show_time = False
     except errors.MrSipError as e:
         logger.error(str(e))

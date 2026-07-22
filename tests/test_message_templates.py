@@ -48,3 +48,35 @@ def test_all_expected_templates_exist():
     names = {t.name for t in TEMPLATES}
     for expected in ("options", "invite", "register", "subscribe", "cancel", "bye", "sp-invite"):
         assert f"{expected}.message" in names
+
+
+@pytest.mark.parametrize("template", TEMPLATES, ids=lambda p: p.name)
+def test_content_length_matches_the_static_body(template):
+    # Regression: invite.message declared Content-Length: 607 but its real
+    # SDP body (LF line endings, as actually sent - sip_packet.py never
+    # converts template line endings to CRLF) is 585 bytes. Same invisible-
+    # from-a-live-send class of bug as F21 above: a strict SIP parser could
+    # reject or misparse the message, but DAS's flood mode never waits for a
+    # response, so it's only visible in the target's own logs. Only checked
+    # for templates whose body has no [[placeholder]] tokens - a
+    # placeholder's substituted length varies per call, so Content-Length
+    # can't be statically verified for those (none currently have any).
+    text = template.read_text()
+    if "\n\n" not in text:
+        return
+    header, body = text.split("\n\n", 1)
+    content_length_lines = [line for line in header.splitlines() if line.lower().startswith("content-length:")]
+    assert content_length_lines, f"{template.name} has no Content-Length header"
+    declared = int(content_length_lines[0].split(":", 1)[1].strip())
+    if declared == 0:
+        # Trailing blank lines in the file itself (not real message content)
+        # are common and harmless here - only a genuinely non-empty body
+        # after a declared 0 is the bug this test is for.
+        assert body.strip() == "", f"{template.name}: Content-Length: 0 but body isn't empty: {body!r}"
+        return
+    if "[[" in body:
+        return
+    actual = len(body.encode("utf-8"))
+    assert declared == actual, (
+        f"{template.name}: Content-Length says {declared}, real body is {actual} bytes"
+    )

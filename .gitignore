@@ -116,8 +116,11 @@ ENV/
 *~
 
 # Internal notes / research (not for public repo)
-docs/
+.internal/
 CLAUDE.md
+
+# Local lab config (contains test credentials, see docs/lab-guide.md)
+pbx-config/
 
 # Local scratch / runtime artifacts
 *.local

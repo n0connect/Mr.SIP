@@ -56,11 +56,12 @@ class TestRunWorkerPool:
     def test_empty_work_items(self):
         assert threadpool.run_worker_pool([], lambda item: item, thread_count=4) == []
 
-    def test_keyboard_interrupt_returns_partial_results_instead_of_raising(self, monkeypatch):
+    def test_keyboard_interrupt_raises_with_partial_results(self, monkeypatch):
         # Regression: KeyboardInterrupt used to re-raise past work_queue.join(),
         # skipping the caller's (nes.py/enum.py) own "N found" summary panel -
         # the single most common way an operator actually stops a long scan.
-        # Now it logs a warning and returns whatever results already landed.
+        # Now it logs a warning, attaches the partial results, and propagates it,
+        # so the caller can print the summary before exiting with 130.
         import queue as queue_module
 
         real_join = queue_module.Queue.join
@@ -74,13 +75,10 @@ class TestRunWorkerPool:
 
         monkeypatch.setattr(queue_module.Queue, "join", _join_then_interrupt)
 
-        # Doesn't raise - that's the point of the fix. Workers may have
-        # already finished by the time the (monkeypatched) join() call
-        # raises, so the result count itself is a timing artifact; what
-        # matters is that run_worker_pool returns normally instead of
-        # propagating KeyboardInterrupt past the caller's summary panel.
-        results = threadpool.run_worker_pool([1, 2, 3], lambda item: item, thread_count=2)
-        assert set(results).issubset({1, 2, 3})
+        with pytest.raises(KeyboardInterrupt) as exc_info:
+            threadpool.run_worker_pool([1, 2, 3], lambda item: item, thread_count=2)
+        assert hasattr(exc_info.value, "results")
+        assert set(exc_info.value.results).issubset({1, 2, 3})
 
 
 class TestPromptYesNo:
@@ -142,4 +140,4 @@ class TestConfirmBulkRun:
         threadpool.confirm_bulk_run(5, "user IDs", 2, 10)
         assert "5 user IDs" in captured["message"]
         assert "2 target network" in captured["message"]
-        assert "10 packages" in captured["message"]
+        assert "10 packets" in captured["message"]

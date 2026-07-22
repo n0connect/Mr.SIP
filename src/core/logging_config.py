@@ -57,8 +57,34 @@ class StripAnsiFormatter(logging.Formatter):
     material) while the console keeps its colored output untouched."""
 
     def format(self, record):
-        message = super().format(record)
-        return theme.strip_ansi(message)
+        record.message = record.getMessage()
+        if self.usesTime():
+            record.asctime = self.formatTime(record, self.datefmt)
+        
+        orig_message = record.message
+        if "\n" in orig_message:
+            lines = orig_message.split("\n")
+            formatted_lines = []
+            for line in lines:
+                record.message = line
+                formatted_lines.append(self.formatMessage(record))
+            record.message = orig_message
+            formatted = "\n".join(formatted_lines)
+        else:
+            formatted = self.formatMessage(record)
+            
+        if record.exc_info and not record.exc_text:
+            record.exc_text = self.formatException(record.exc_info)
+        if record.exc_text:
+            if not formatted.endswith("\n"):
+                formatted = formatted + "\n"
+            formatted = formatted + record.exc_text
+        if record.stack_info:
+            if not formatted.endswith("\n"):
+                formatted = formatted + "\n"
+            formatted = formatted + self.formatStack(record.stack_info)
+            
+        return theme.strip_ansi(formatted)
 
 
 class TqdmLoggingHandler(logging.Handler):
@@ -87,6 +113,8 @@ def setup_logging(verbose: bool, log_dir: str = "logs") -> logging.Logger:
     # UnicodeEncodeError instead of printing a readable escaped fallback.
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="backslashreplace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(errors="backslashreplace")
 
     console_handler = TqdmLoggingHandler()
     console_handler.setLevel(logging.DEBUG if verbose else logging.INFO)

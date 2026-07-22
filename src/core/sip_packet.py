@@ -66,6 +66,9 @@ class sip_packet:
         expire_duration=3600,
         wait=False,
         mtu=None,
+        timeout=5,
+        scapy_socket=None,
+        client_socket=None,
     ):
         self.method = method
         self.protocol = protocol
@@ -79,6 +82,23 @@ class sip_packet:
         self.expire_duration = expire_duration
         self.wait = wait
         self.mtu = mtu
+        # Optional persistent raw socket for protocol="scapy" sends (see
+        # F26 in CLAUDE.md). Left as None, scapy.send()'s own default
+        # behavior (open a fresh raw L3 socket, send one packet, close it)
+        # is unchanged - callers doing a flood loop of many scapy sends
+        # against the same target (das.py) build one socket once and pass
+        # it here instead, since the routing lookup that determines it is
+        # invariant across a fixed-target loop.
+        self.scapy_socket = scapy_socket
+        self.client_socket = client_socket
+        # Socket-mode response timeout in seconds. Defaults to 5 (the
+        # historical value) for real probes/enumeration, where waiting a bit
+        # longer for a real server's response is worth it. Callers doing a
+        # quick "is anything there at all" liveness check (enum.py, das.py)
+        # pass a much shorter value instead - that's a different question
+        # ("did *anything* answer") than "wait patiently for this specific
+        # server's real response."
+        self.timeout = timeout
         self.client_port = random.randint(10000, 65535)
 
     method_location = str(Path(__file__).resolve().parent.parent / "data" / "method")
@@ -130,6 +150,19 @@ class sip_packet:
         template_path = os.path.join(self.method_location, f"{self.method}.message")
         try:
             packet_data = _read_template(template_path)
+        except FileNotFoundError as e:
+            # An unsupported/misspelled --mt used to surface as a raw
+            # "[Errno 2] No such file or directory: '/full/local/path/...'"
+            # - technically caught (no traceback), but the message itself
+            # leaked the local install path and gave no hint of what a
+            # valid value looks like. --mt is free-text (any *.message file
+            # name is accepted, including custom ones - see CLAUDE.md), so
+            # this can't be an argparse choices= validator; list what's
+            # actually available instead.
+            available = ", ".join(sorted(p.stem for p in Path(self.method_location).glob("*.message")))
+            raise errors.TemplateNotFoundError(
+                f"Unknown message type: '{self.method}'. Available: {available}."
+            ) from e
         except OSError as e:
             raise errors.TemplateNotFoundError(str(e)) from e
 
@@ -138,26 +171,32 @@ class sip_packet:
 
         try:
             if self.protocol == "socket":
-                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                s.settimeout(5)
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-                try:
-                    s.bind(("0.0.0.0", 0))
+                if self.client_socket is not None:
+                    s = self.client_socket
                     self.client_port = s.getsockname()[1]
-                except OSError as e:
-                    logger.debug("Failed to bind ephemeral port: %s", e)
-                    raise errors.PacketSendError(f"Failed to bind local ephemeral port: {e}") from e
+                else:
+                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    s.settimeout(self.timeout)
+                    s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                    try:
+                        s.bind(("0.0.0.0", 0))
+                        self.client_port = s.getsockname()[1]
+                    except OSError as e:
+                        logger.debug("Failed to bind ephemeral port: %s", e)
+                        raise errors.PacketSendError(f"Failed to bind local ephemeral port: {e}") from e
                 
                 packet_data = self.fill_packet_data(packet_data)
                 s.connect((str(self.server_ip), int(self.server_port)))
                 s.sendall(packet_data)
                 if self.wait:
                     buff, srcaddr = s.recvfrom(8192)
-                    s.close()
+                    if self.client_socket is None:
+                        s.close()
                     status = self.getResponse(buff.decode("utf-8"))
                     return {"status": True, "response": status}
                 else:
-                    s.close()
+                    if self.client_socket is None:
+                        s.close()
                     return {"status": True}
 
             elif self.protocol == "scapy":
@@ -167,15 +206,18 @@ class sip_packet:
                     / UDP(sport=int(self.client_port), dport=int(self.server_port))
                     / packet_data
                 )
-                if self.mtu:
+                if self.mtu is not None:
+                    # is not None, not a truthy check: --mtu 0 must still hit
+                    # the "at least 68 bytes" guard below instead of silently
+                    # being treated the same as "no --mtu given at all".
                     if self.mtu < 68:
                         raise errors.PacketSendError("MTU size must be at least 68 bytes.")
                     from scapy.all import fragment
                     frags = fragment(pkt, fragsize=self.mtu)
                     for frag in frags:
-                        send(frag, verbose=False)
+                        send(frag, socket=self.scapy_socket, verbose=False)
                 else:
-                    send(pkt, verbose=False)
+                    send(pkt, socket=self.scapy_socket, verbose=False)
                 return {"status": True}
         except (OSError, UnicodeDecodeError) as e:
             # Only the failure modes an actual send/receive cycle can raise
@@ -198,11 +240,13 @@ class sip_packet:
             body = ""
         headers = re.split(headers_nl, header)
 
-        if len(headers) > 1:
+        if len(headers) >= 1:
             response = {}
             first_line = headers[0].split(" ", 2)
             if len(first_line) == 3:
-                version, code, description = first_line
+                version, code, _ = first_line
+            elif len(first_line) == 2:
+                version, code = first_line
             else:
                 logger.warning("Could not parse the first header line: %s", first_line)
                 return response

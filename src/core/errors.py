@@ -23,4 +23,5 @@ class TemplateNotFoundError(MrSipError):
 
 
 class InvalidInterfaceError(MrSipError):
-    """Raised when the configured network interface has no usable IPv4 address."""
+    """Raised when --if names an interface that doesn't exist on this system,
+    or one that exists but has no usable IPv4 address."""

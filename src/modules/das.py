@@ -1,14 +1,35 @@
 import logging
 import random
+import socket
 import sys
 import time
 
-from scapy.all import IP
+from scapy.all import IP, resolve_iface
 from tqdm import tqdm
 
 from src.core import errors, net_utils, sip_packet, theme
 
 logger = logging.getLogger(__name__)
+
+
+def _open_scapy_socket(target, iface_hint):
+    """Build one persistent raw L3 socket for the whole flood run.
+
+    scapy.send(pkt) with no socket= kwarg opens a fresh raw socket, sends
+    one packet, and closes it again - every single call (see
+    scapy.sendrecv._send: `need_closing = socket is None`). In das.py's
+    flood loop that means a raw-socket open/close cycle per packet instead
+    of per run, real overhead in the one code path whose entire purpose is
+    sending as fast as possible (F26 in CLAUDE.md). Safe to build once here
+    because args.target_network is fixed for the whole loop - the same
+    invariant default_client_ip above already relies on - so the routing
+    lookup that determines the outgoing interface can't change mid-flood.
+    Resolved the same way scapy's own per-packet default would resolve it
+    (a routing lookup against the destination, falling back to conf.iface).
+    """
+    route_iface, _src, _gw = IP(dst=target).route()
+    iface = resolve_iface(route_iface or iface_hint)
+    return iface.l3socket(False)(iface=iface)
 
 
 def _summarize(sent, i, target, failed, last_error, elapsed, send_time_total, send_time_count):
@@ -40,10 +61,15 @@ def run(args, conf, client_ip, client_netmask):
         )
 
     value_errors = []
+    target_network = getattr(args, "target_network", None)
+    if target_network and ("/" in target_network or "-" in target_network):
+        value_errors.append(f"Error: DoS attack simulation requires a single target IP address. '{args.target_network}' is a subnet range or CIDR.")
     if args.manual and not args.library and not args.manual_ip_list:
         value_errors.append("Error: -m/--manual requires --il/--manual-ip-list to specify the IP list file.")
     if args.subnet and not args.library and not client_netmask:
         value_errors.append("Error: -s/--subnet (subnet spoofing) requires an interface with a valid netmask.")
+    if getattr(args, "mtu", None) and args.library:
+        value_errors.append("Error: --mtu (packet fragmentation) requires raw Scapy mode. Drop -l to use fragmentation, or drop --mtu to use socket library mode.")
     net_utils.check_value_errors(value_errors)
 
     # Wordlists are read once up front instead of on every loop iteration -
@@ -57,6 +83,16 @@ def run(args, conf, client_ip, client_netmask):
     # "Brcm Callctrl/1.5.1.0 MxSF/v3.2.6.26" aren't alphanumeric, and
     # filtering them out would silently empty DAS's User-Agent rotation.
     user_agent_choices = net_utils.read_lines(args.user_agent)
+
+    if not to_user_choices:
+        value_errors.append(f"Error: To user list file '{args.to_user}' is empty or contains no valid lines.")
+    if not from_user_choices:
+        value_errors.append(f"Error: From user list file '{args.from_user}' is empty or contains no valid lines.")
+    if not sp_user_choices:
+        value_errors.append(f"Error: SP user list file '{args.sp_user}' is empty or contains no valid lines.")
+    if not user_agent_choices:
+        value_errors.append(f"Error: User Agent list file '{args.user_agent}' is empty or contains no valid lines.")
+
     manual_ip_choices = None
     if args.manual and not args.library:
         # --il is documented (DAS_USAGE, README) as accepting SIP-NES's own
@@ -73,10 +109,34 @@ def run(args, conf, client_ip, client_netmask):
     # instead of on every iteration (it's discarded immediately anyway
     # whenever -r/-s/-m override it below).
     default_client_ip = IP(dst=args.target_network).src
+    # Also invariant across the loop (depends only on -l, not on anything
+    # that changes per packet) - computed once instead of on every
+    # iteration.
+    send_protocol = "socket" if args.library else "scapy"
 
     net_utils.promisc("on", conf.iface)
     try:
         net_utils.printInital("DoS attack simulation", conf.iface, client_ip)
+
+        # response_timeout is None unless --rt was explicitly given, in
+        # which case it also raises this pre-check's patience to match
+        # (see enum.py's _resolve_live_targets docstring for the reasoning -
+        # otherwise a genuinely live but slow target still warns as
+        # unreachable regardless of how long --rt told the flood to wait).
+        timeout_kwargs = {} if args.response_timeout is None else {"timeout": args.response_timeout}
+        if not args.skip_live_check and net_utils.probe_liveness(args.target_network, args.dest_port, client_ip, **timeout_kwargs) is None:
+            # Warn, never block - SIP-DAS deliberately has no dry-run gate
+            # (see CLAUDE.md): an operator may legitimately want to flood a
+            # target that doesn't respond to casual probes (filtered,
+            # intentionally silent, etc.). This is purely informational, so
+            # a typo'd or wrong target doesn't burn the whole flood duration
+            # before anyone notices.
+            logger.warning(
+                "Target %s did not respond to an initial liveness probe - it may be "
+                "unreachable, filtering, or simply silent. Continuing anyway "
+                "(use --skip-live-check to silence this check).",
+                args.target_network,
+            )
 
         counter = int(args.counter)
         # -c 0 means "flood indefinitely" (matches hping3/nping convention).
@@ -95,13 +155,30 @@ def run(args, conf, client_ip, client_netmask):
         send_time_total = 0.0
         send_time_count = 0
 
+        # One persistent raw socket for the whole flood run instead of
+        # scapy.send() opening/closing a fresh one per packet - see F26 in
+        # CLAUDE.md and _open_scapy_socket()'s own docstring above.
+        scapy_socket = _open_scapy_socket(args.target_network, conf.iface) if send_protocol == "scapy" else None
+
+        # One persistent UDP socket for socket library mode, preventing ephemeral port exhaustion.
+        client_socket = None
+        if send_protocol == "socket":
+            client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            client_socket.settimeout(args.response_timeout if args.response_timeout is not None else 5.0)
+            client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            try:
+                client_socket.bind(("0.0.0.0", 0))
+            except OSError as e:
+                raise errors.MrSipError(f"Failed to bind local ephemeral port: {e}") from e
+
         # elapsed/_summarize live in `finally` so Ctrl+C still shows the
         # partial-run summary instead of throwing it away - previously a
         # KeyboardInterrupt raised SystemExit before these lines could run,
         # which is the single most common way a real flood/scan actually
         # ends. KeyboardInterrupt propagates on through this finally to
         # cli.main()'s own handler (still prints "Interrupted by user." and
-        # exits 130), so exit-code behavior is unchanged.
+        # exits 130), so exit-code behavior is unchanged. The persistent
+        # scapy_socket and client_socket are closed here too, for the same reason.
         try:
             with tqdm(total=None if infinite else counter, desc="Progress", unit="pkt", disable=not sys.stdout.isatty()) as pbar:
                 while infinite or i < counter:
@@ -118,11 +195,11 @@ def run(args, conf, client_ip, client_netmask):
                     if args.subnet and not args.library:
                         client = net_utils.randomIPAddressFromNetwork(client_ip, client_netmask, False)
 
-                    send_protocol = "socket" if args.library else "scapy"
                     packet = sip_packet.sip_packet(
                         str(message_type), str(args.target_network), str(args.dest_port),
                         str(client), str(fromUser), str(toUser), str(userAgent), str(spUser),
-                        send_protocol, mtu=args.mtu,
+                        send_protocol, mtu=args.mtu, scapy_socket=scapy_socket,
+                        client_socket=client_socket,
                     )
                     i += 1
                     send_start = time.time()
@@ -141,6 +218,10 @@ def run(args, conf, client_ip, client_netmask):
                         if remaining > 0:
                             time.sleep(remaining)
         finally:
+            if scapy_socket is not None:
+                scapy_socket.close()
+            if client_socket is not None:
+                client_socket.close()
             elapsed = time.time() - start_time
             logger.info(_summarize(sent, i, args.target_network, failed, last_error, elapsed, send_time_total, send_time_count))
     finally:

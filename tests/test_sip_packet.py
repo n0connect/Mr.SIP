@@ -54,8 +54,33 @@ class TestGeneratePacket:
         with pytest.raises(errors.TemplateNotFoundError):
             pkt.generate_packet()
 
+    def test_missing_template_error_lists_available_methods_not_a_raw_path(self):
+        # Regression: an unsupported/misspelled --mt used to surface as a
+        # raw "[Errno 2] No such file or directory: '/full/local/path/...'"
+        # - technically caught, not a traceback, but the message itself
+        # leaked the local install path and gave no hint of a valid value.
+        # --mt is free-text (custom *.message templates are supported), so
+        # this can't be an argparse choices= validator.
+        pkt = sip_packet("this-method-does-not-exist", "192.168.1.1", 5060, "10.0.0.1")
+        with pytest.raises(errors.TemplateNotFoundError) as exc_info:
+            pkt.generate_packet()
+        message = str(exc_info.value)
+        assert "this-method-does-not-exist" in message
+        assert "Errno" not in message
+        assert "/" not in message  # no leaked filesystem path
+        assert "options" in message and "invite" in message
+
     def test_scapy_mtu_below_minimum_rejected(self):
         pkt = sip_packet("options", "192.168.1.1", 5060, "10.0.0.1", protocol="scapy", mtu=10)
+        with pytest.raises(errors.PacketSendError, match="MTU size must be at least 68 bytes"):
+            pkt.generate_packet()
+
+    def test_scapy_mtu_zero_is_not_silently_treated_as_unset(self):
+        # Regression: `if self.mtu:` treated 0 the same as "no --mtu given at
+        # all" (both falsy), skipping the "at least 68 bytes" guard entirely
+        # instead of rejecting it. Must use `is not None` to distinguish
+        # "explicitly 0" from "unset".
+        pkt = sip_packet("options", "192.168.1.1", 5060, "10.0.0.1", protocol="scapy", mtu=0)
         with pytest.raises(errors.PacketSendError, match="MTU size must be at least 68 bytes"):
             pkt.generate_packet()
 
@@ -116,3 +141,19 @@ class TestGetResponse:
         raw = "SIP/2.0 NOTACODE Something\r\nVia: x\r\n\r\n"
         result = pkt.getResponse(raw)
         assert "code" not in result
+
+    def test_parses_status_line_without_headers(self):
+        pkt = sip_packet("options", "1.2.3.4", 5060, "10.0.0.1")
+        raw = "SIP/2.0 200 OK"
+        result = pkt.getResponse(raw)
+        assert result["code"] == 200
+        assert result["headers"] == {}
+        assert result["body"] == ""
+
+    def test_parses_status_line_without_description(self):
+        pkt = sip_packet("options", "1.2.3.4", 5060, "10.0.0.1")
+        raw = "SIP/2.0 401"
+        result = pkt.getResponse(raw)
+        assert result["code"] == 401
+        assert result["headers"] == {}
+        assert result["body"] == ""

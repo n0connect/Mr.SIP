@@ -104,16 +104,18 @@ def prompt_yes_no(message: str) -> bool:
     return False
 
 
-def confirm_bulk_run(subject_count, subject_label, target_count, package_count):
+def confirm_bulk_run(subject_count, subject_label, target_count, packet_count, force=False):
     """Ask the operator to confirm a bulk send before it starts. Raises
-    SystemExit(0) on decline. Single source of the "N packages will be
+    SystemExit(0) on decline. Single source of the "N packets will be
     generated, continue?" confirmation - previously duplicated near-verbatim
     in nes.py and enum.py, each building its own prompt text and handling
     the decline case itself.
     """
+    if force:
+        return
     message = (
         f"{subject_count} {subject_label} will be checked for {target_count} target network(s).\n"
-        f"There will be {package_count} packages generated. Do you want to continue? (y/n)"
+        f"There will be {packet_count} packets generated. Do you want to continue? (y/n)"
     )
     if not prompt_yes_no(theme.colorize(message, theme.ACCENT)):
         raise SystemExit(0)
@@ -163,19 +165,32 @@ def run_worker_pool(work_items, worker_fn, thread_count, extra_args=()):
 
     try:
         work_queue.join()
+        interrupted = False
     except KeyboardInterrupt:
-        # Return whatever results the workers already finished instead of
-        # re-raising past the caller's own summary panel (nes.py/enum.py log
-        # "N found" right after this call returns) - previously Ctrl+C threw
-        # that summary away entirely, same class of bug as das.py's flood
-        # loop. Daemon threads working on in-flight requests are abandoned
-        # here, same as before; this only changes what happens to results
-        # already sitting in the queue.
+        # Collect whatever results the workers already finished, but still
+        # propagate the interrupt - swallowing it here used to make Ctrl+C
+        # during an NES/ENUM scan exit 0 like a normal completion, since
+        # cli.main()'s own `except KeyboardInterrupt: ... sys.exit(130)`
+        # handler was never reached. That broke automation/wrapper scripts
+        # that rely on the standard 130 (SIGINT) exit code to detect an
+        # interrupted run. The partial results are attached to the exception
+        # itself (exc.results below) so the caller (nes.py/enum.py) can still
+        # log its own summary panel before re-raising on up to cli.main().
+        # Daemon threads working on in-flight requests are abandoned here,
+        # same as before; this only changes what happens to results already
+        # sitting in the queue.
         logger.warning("CTRL+C pressed, terminating gracefully. In-flight requests may still finish in the background.")
+        interrupted = True
     finally:
         pbar.close()
 
     out = []
     while not results.empty():
         out.append(results.get_nowait())
+
+    if interrupted:
+        exc = KeyboardInterrupt()
+        exc.results = out
+        raise exc
+
     return out

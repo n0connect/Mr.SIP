@@ -11,13 +11,14 @@ import os
 import random
 import socket
 import struct
+import subprocess
 import sys
 import threading
 from pathlib import Path
 
 import netifaces
 
-from src.core import errors, logging_config  # noqa: F401 - importing logging_config
+from src.core import errors, logging_config, sip_packet  # noqa: F401 - importing logging_config
 # registers the FOUND log level and Logger.found() as an import-time side
 # effect, which printResult() below depends on. Importing it here (rather
 # than relying on cli.py having already done so) means this module's use of
@@ -49,12 +50,24 @@ def read_lines(path, predicate=None):
     try:
         with open(path) as f:
             lines = [line.strip() for line in f if line.strip()]
+    except FileNotFoundError:
+        # Left to propagate as-is - cli.main() already has a clean, specific
+        # "File not found: X" handler for this exact exception.
+        raise
     except UnicodeDecodeError as e:
         # A wordlist that isn't valid UTF-8 (a binary file pointed at by
         # mistake, a wordlist saved in Latin-1/Windows-1252, ...) used to
         # crash with a raw traceback here instead of the clean CLI error
         # every other bad-input case gets.
         raise errors.MrSipError(f"{path} is not a valid UTF-8 text file: {e}") from e
+    except OSError as e:
+        # Any other reason open() can fail (a directory instead of a file,
+        # a permission-denied path, ...) used to crash with a raw traceback
+        # revealing the full local filesystem path - a bad --from/--to/--su/
+        # --ua/--il value is an easy, common typo (e.g. tab-completing to
+        # the wrong entry), not something that should look like the tool
+        # itself broke.
+        raise errors.MrSipError(f"Could not read {path}: {e.strerror}") from e
     if predicate is not None:
         lines = [line for line in lines if predicate(line)]
     return lines
@@ -73,8 +86,14 @@ def writeFile(file, content):
     parent = os.path.dirname(file)
     if parent:
         os.makedirs(parent, exist_ok=True)
-    with open(file, "a+") as f:
-        f.write(content)
+    try:
+        with open(file, "a+") as f:
+            f.write(content)
+    except OSError as e:
+        # A directory or a permission-denied path given as -i/--ip-save-list
+        # used to crash with a raw traceback mid-scan instead of a clean
+        # error - the same class of gap as read_lines() above.
+        raise errors.MrSipError(f"Could not write to {file}: {e.strerror}") from e
 
 
 def randomIPAddressFromNetwork(IP, Netmask, Network):
@@ -98,19 +117,61 @@ def randomIPAddress():
     )
 
 
+def probe_liveness(target, dest_port, client_ip, message_type="options", from_user=None, to_user=None, timeout=2):
+    """Send a single, short-timeout SIP probe to check whether *target*
+    responds at all. Shared by SIP-ENUM (skip a target instead of running a
+    full enumeration against something that never answers) and SIP-DAS (warn
+    before flooding, without blocking - see --skip-live-check).
+
+    from_user/to_user default to a random, non-empty check-user - an empty
+    to_user produces "OPTIONS sip:@host" (empty user before the @), a
+    malformed Request-URI that Asterisk silently drops instead of responding
+    to (the same F3 pathology CHANGELOG.md documents for register.message's
+    blank to_user), which would make a perfectly live target look dead.
+
+    Returns the response dict from sip_packet.generate_packet() on any
+    reply (including an error-status SIP response - the caller decides what
+    a given status code means), or None if nothing came back in time. This
+    is deliberately a much shorter timeout than sip_packet's own 5s default
+    - it's answering "did anything respond," not "wait for this specific
+    server's full response."
+    """
+    if from_user is None:
+        from_user = f"mrsip_check_{sip_packet.sip_packet.get_rand_tag()}"
+    if to_user is None:
+        to_user = from_user
+
+    probe = sip_packet.sip_packet(
+        message_type, target, dest_port, client_ip,
+        from_user=from_user, to_user=to_user,
+        protocol="socket", wait=True, timeout=timeout,
+    )
+    try:
+        return probe.generate_packet()
+    except errors.PacketSendError:
+        return None
+
+
 def promisc(state, iface):
     # Manage interface promiscuity. valid states are on or off.
     # iface is the operator's own --if CLI argument (local, trusted caller),
-    # not remote/untrusted input; os.system() usage unchanged from the
-    # pre-restructure utilities.py, out of scope for this move.
+    # not remote/untrusted input.
     if not sys.platform.startswith("linux"):
         logger.debug(
             "Skipping promiscuous mode toggle: 'ip link set' is Linux-only, current platform is %s.",
             sys.platform,
         )
         return
-    ret = os.system(f"ip link set {iface} promisc {state}")
-    if ret == 1:
+    # subprocess.run's returncode is the real process exit code - unlike the
+    # os.system() call this replaced, whose return value is a packed wait()
+    # status (exit code shifted left 8 bits on POSIX), so a real exit-code-1
+    # failure showed up as 256, not 1. The old `if ret == 1:` check could
+    # therefore never fire on an actual permission failure.
+    result = subprocess.run(
+        ["ip", "link", "set", iface, "promisc", state],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
         logger.warning("You must run this script with root permissions.")
 
 
@@ -136,6 +197,25 @@ def printInital(moduleName, client_iface, client_ip):
     logger.info("%s process started.", moduleName)
 
 
+_written_targets_cache = {}
+
+
+def _load_existing_targets(path):
+    """Targets already present in *path* (e.g. left over from a previous
+    SIP-NES run appending to the same -i output file), keyed by the target
+    field only - the same "ip;user_agent;type" format read_ip_list() parses.
+    """
+    try:
+        with open(path) as f:
+            return {line.split(";", 1)[0].strip() for line in f if line.strip()}
+    except FileNotFoundError:
+        return set()
+    except OSError as e:
+        # A directory given as -i/--ip-save-list used to crash with a raw
+        # traceback here (see writeFile()'s same fix, right below).
+        raise errors.MrSipError(f"Could not read {path}: {e.strerror}") from e
+
+
 def printResult(result, target, ops_ip_list):
     if "." not in target:
         target = decimal_to_octets(target)
@@ -152,29 +232,30 @@ def printResult(result, target, ops_ip_list):
             user_agent = list(value)[0]
 
     target_type = defineTargetType(user_agent)
+    label = "SIP Server" if target_type == "Server" else "SIP Client"
+
+    # F27: previously reread and rewrote the entire ip_list.txt (dedup via a
+    # since-removed removeDuplicateLines()) on every single discovery - O(n)
+    # work per host found, O(n^2) total across a scan, all done under
+    # file_lock so it serialized every worker thread's result write. An
+    # in-memory set (loaded once per output path from any pre-existing
+    # content, e.g. a prior run's results) turns "already recorded this
+    # target" into an O(1) check and a plain append, with no rewrite needed.
+    with file_lock:
+        seen = _written_targets_cache.setdefault(ops_ip_list, _load_existing_targets(ops_ip_list))
+        if target in seen:
+            return
+        seen.add(target)
+        writeFile(ops_ip_list, f"{target};{user_agent};{label}\n")
+
     if target_type == "Server":
         logger.found("New live IP found on %s, it seems as a SIP Server (%s).", target, user_agent)
-        with file_lock:
-            writeFile(ops_ip_list, target + ";" + user_agent + ";SIP Server" + "\n")
-            removeDuplicateLines(ops_ip_list)
-    elif target_type == "Client":
+    else:
         logger.found("New live IP found on %s, it seems as a SIP Client.", target)
-        with file_lock:
-            writeFile(ops_ip_list, target + ";" + user_agent + ";SIP Client" + "\n")
-            removeDuplicateLines(ops_ip_list)
 
 
 def decimal_to_octets(dec):
     return socket.inet_ntoa(struct.pack("!L", int(dec)))
-
-
-def removeDuplicateLines(path):
-    with open(path, "r+") as f:
-        unique = list(dict.fromkeys(f.readlines()))
-        f.seek(0)
-        for line in unique:
-            f.write(line)
-        f.truncate()
 
 
 def check_value_errors(value_errors):
@@ -222,6 +303,41 @@ def port_number(value):
         raise argparse.ArgumentTypeError(f"{value!r} is not an integer") from None
     if parsed < 1 or parsed > 65535:
         raise argparse.ArgumentTypeError(f"must be between 1 and 65535 (got {parsed})")
+    return parsed
+
+
+def non_negative_int(value):
+    """argparse type= validator for counters that may legitimately be 0
+    (e.g. -c/--count, where 0 means "flood indefinitely" - see das.py).
+    Rejects negative values: das.py's `while infinite or i < counter` loop
+    silently sends 0 packets for a negative counter instead of raising an
+    error, which used to look like a hang or a silent no-op rather than the
+    invalid input it actually was.
+    """
+    try:
+        parsed = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{value!r} is not an integer") from None
+    if parsed < 0:
+        raise argparse.ArgumentTypeError(f"must be 0 or greater (got {parsed})")
+    return parsed
+
+
+def mtu_size(value):
+    """argparse type= validator for --mtu (Scapy fragmentation size).
+    Mirrors the runtime check in sip_packet.generate_packet() - 68 bytes is
+    the smallest IP datagram a compliant stack is required to handle - but
+    fails at parse time instead of per-packet deep inside a flood loop,
+    where a bad value would otherwise surface as a wall of "failed" sends
+    (each one independently raising and being swallowed as PacketSendError)
+    instead of one clear error before anything is sent.
+    """
+    try:
+        parsed = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{value!r} is not an integer") from None
+    if parsed < 68:
+        raise argparse.ArgumentTypeError(f"must be at least 68 bytes (got {parsed})")
     return parsed
 
 
@@ -280,3 +396,55 @@ def check_ip_address(value):
         return value
     _validate_dotted_quad(value, f"{value} is an invalid IP address")
     return value
+
+
+def expand_target_network(target_network, value_errors=None):
+    """Expand target_network (dash-range, CIDR/subnet, or single IP) into individual target IPs.
+
+    If target_network is a single IP, returns [target_network].
+    On errors (like bad ranges), appends a message to value_errors and returns []
+    if given, otherwise raises errors.MrSipError (never a bare exception type -
+    cli.main() only has a clean handler for MrSipError/FileNotFoundError/
+    KeyboardInterrupt; anything else would crash with a raw traceback).
+    Only ValueError/IndexError from malformed input is caught here - a real
+    programming bug (TypeError, AttributeError, ...) should still propagate
+    as itself rather than being relabeled as a validation error (see F19 in
+    CLAUDE.md for the same reasoning applied to sip_packet.generate_packet()).
+    """
+    if "-" in target_network:
+        host_range = target_network.split("-")
+        try:
+            host = ipaddress.IPv4Address(str(host_range[0]))
+            last = ipaddress.IPv4Address(str(host_range[1]))
+            if host > last:
+                raise ValueError(f"Second IP address ({last}) must be bigger than first IP address ({host})")
+            num_addresses = int(last) - int(host) + 1
+            if num_addresses > 65536:
+                logger.warning(
+                    "Expanding a large IP range (%d addresses). This may consume significant memory.",
+                    num_addresses
+                )
+            return [decimal_to_octets(h) for h in range(int(host), int(last) + 1)]
+        except (ValueError, IndexError) as e:
+            if value_errors is not None:
+                value_errors.append(f"Error: {e}.")
+                return []
+            raise errors.MrSipError(f"Error: {e}.") from e
+
+    if "/" in target_network:
+        try:
+            net = ipaddress.IPv4Network(str(target_network), strict=False)
+            if net.num_addresses > 65536:
+                logger.warning(
+                    "Expanding a large subnet /%d (%d addresses). This may consume significant memory.",
+                    net.prefixlen, net.num_addresses
+                )
+            return [str(ip) for ip in net] if net.num_addresses <= 2 else [str(ip) for ip in net.hosts()]
+        except ValueError as e:
+            if value_errors is not None:
+                value_errors.append(f"Error expanding subnet: {e}")
+                return []
+            raise errors.MrSipError(f"Error expanding subnet: {e}") from e
+
+    return [target_network]
+

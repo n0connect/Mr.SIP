@@ -90,3 +90,13 @@ class TestSetupLogging:
         console_handlers = [h for h in logger.handlers if not isinstance(h, logging.FileHandler)]
         assert len(console_handlers) == 1
         assert isinstance(console_handlers[0], logging_config.TqdmLoggingHandler)
+
+
+class TestStripAnsiFormatterMultiLine:
+    def test_strip_ansi_formatter_prefixes_every_line_of_multiline_message(self):
+        formatter = logging_config.StripAnsiFormatter("%(levelname)s: %(message)s")
+        record = logging.LogRecord("test", logging.INFO, "path", 10, "line1\n\x1b[31mline2\x1b[0m\nline3", (), None)
+        formatted = formatter.format(record)
+        expected = "INFO: line1\nINFO: line2\nINFO: line3"
+        assert formatted == expected
+

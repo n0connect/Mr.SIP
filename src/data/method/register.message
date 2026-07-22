@@ -6,7 +6,7 @@ From: [[from_user]] <sip:[[from_user]]@[[server_ip]]>;tag=[[tag_value]]
 Call-ID: [[call_id]]
 CSeq: 1 REGISTER
 Contact: <sip:[[from_user]]@[[client_ip]]:[[client_port]]>
-Expires: 3600
+Expires: [[expire_duration]]
 User-Agent: [[user_agent]]
 Content-Length: 0
 

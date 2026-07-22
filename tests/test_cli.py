@@ -26,6 +26,25 @@ def test_missing_wordlist_file_is_a_clean_exit_not_a_traceback(monkeypatch, caps
     assert "File not found" in capsys.readouterr().out
 
 
+def test_nonexistent_interface_is_a_clean_exit_not_a_traceback(monkeypatch, capsys):
+    # Regression: --if naming an interface that doesn't exist on this
+    # system used to crash with a full raw traceback through Scapy's own
+    # conf.iface setter (the assignment ran before main()'s try: block
+    # existed) instead of the clean CLI error every other bad-input case
+    # gets. A typo'd interface name is one of the easiest, most common
+    # mistakes to make with this flag (see docs/usage-guide.md).
+    monkeypatch.setattr(
+        "sys.argv",
+        ["mr.sip.py", "--nes", "--tn=127.0.0.1", "--if=definitely_not_a_real_interface0"],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    assert exc_info.value.code == 1
+    out = capsys.readouterr().out
+    assert "Traceback" not in out
+    assert "not found" in out
+
+
 class TestDefaults:
     def test_defaults_match_documented_behavior(self):
         args = build_parser().parse_args(["--nes", "--tn=127.0.0.1"])
@@ -35,6 +54,33 @@ class TestDefaults:
         assert args.mtu is None
         assert args.library is False
         assert args.verbose is False
+        assert args.skip_live_check is False
+
+    def test_skip_live_check_flag_parses(self):
+        args = build_parser().parse_args(["--enum", "--tn=127.0.0.1", "--skip-live-check"])
+        assert args.skip_live_check is True
+
+    def test_assume_yes_flag_parses(self):
+        args = build_parser().parse_args(["--enum", "--tn=127.0.0.1", "--yes"])
+        assert args.assume_yes is True
+        args = build_parser().parse_args(["--enum", "--tn=127.0.0.1", "-y"])
+        assert args.assume_yes is True
+
+    def test_response_timeout_defaults_to_none_meaning_not_explicitly_set(self):
+        # None (not 5.0) at parse time is deliberate: nes.py/enum.py/das.py
+        # each resolve None to the historical 5.0 default themselves, but
+        # also use "was --rt explicitly given at all" as a signal to widen
+        # SIP-ENUM/SIP-DAS's liveness pre-check timeout to match (see F28 in
+        # CLAUDE.md) - a bare 5.0 default here would be indistinguishable
+        # from an operator explicitly passing --rt 5.
+        args = build_parser().parse_args(["--nes", "--tn=127.0.0.1"])
+        assert args.response_timeout is None
+
+    def test_response_timeout_flag_parses(self):
+        args = build_parser().parse_args(["--nes", "--tn=127.0.0.1", "--rt", "1"])
+        assert args.response_timeout == 1.0
+        args = build_parser().parse_args(["--nes", "--tn=127.0.0.1", "--response-timeout", "0.5"])
+        assert args.response_timeout == 0.5
 
     def test_from_to_default_to_bundled_wordlists(self):
         args = build_parser().parse_args(["--nes", "--tn=127.0.0.1"])
@@ -64,6 +110,13 @@ class TestValidation:
     def test_non_integer_dest_port_is_rejected_at_parse_time(self):
         with pytest.raises(SystemExit):
             build_parser().parse_args(["--nes", "--tn=127.0.0.1", "--dp", "not-a-number"])
+
+    def test_zero_response_timeout_is_rejected_at_parse_time(self):
+        # positive_float (shared with --pps): 0 would make sip_packet's
+        # socket.settimeout(0) non-blocking instead of "wait 0 seconds",
+        # not a sane timeout value.
+        with pytest.raises(SystemExit):
+            build_parser().parse_args(["--nes", "--tn=127.0.0.1", "--rt", "0"])
 
     def test_modules_are_mutually_exclusive(self):
         with pytest.raises(SystemExit):
