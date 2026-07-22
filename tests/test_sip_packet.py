@@ -32,6 +32,26 @@ class TestFillPacketData:
         assert "X-Injected" in text  # content survives, just not as a real header line
         assert text.count("\n") == 0
 
+    def test_placeholder_shaped_value_is_not_re_substituted(self):
+        # Regression: fill_packet_data() used to apply each substitution via
+        # a sequential text.replace(key, value) over the same accumulating
+        # string. If an earlier-processed field's value (from_user) happened
+        # to contain the literal text of a later-processed placeholder
+        # ("[[call_id]]"), that literal text got overwritten a second time
+        # by the later placeholder's real substitution - silently corrupting
+        # an unrelated field instead of preserving the literal wordlist
+        # content. Each placeholder in the original template must be
+        # substituted exactly once, from the original text, not from
+        # already-substituted output.
+        pkt = sip_packet(
+            "options", "192.168.1.1", 5060, "10.0.0.1",
+            from_user="[[call_id]]", to_user="1001",
+        )
+        text = pkt.fill_packet_data("From: [[from_user]]\r\nCall-ID: [[call_id]]").decode("utf-8")
+        from_line, call_id_line = text.split("\r\n")
+        assert from_line == "From: [[call_id]]"
+        assert from_line != call_id_line.replace("Call-ID:", "From:")
+
     def test_client_port_is_per_instance_not_shared(self):
         # Regression for F13: client_port used to be a class attribute,
         # so every packet shared the same source port for the process's

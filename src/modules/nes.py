@@ -188,19 +188,14 @@ def run(args, conf, client_ip):
             raise
     else:
         if len(user_pairs) == 1:
+            # Same probe-and-record logic as the bulk path's _scan_one(),
+            # just called directly instead of through run_worker_pool - not
+            # worth the thread-pool/queue overhead for exactly one item.
             host = args.target_network
-            from_user_value, to_user_value = user_pairs[0]
-            packet = sip_packet.sip_packet(
-                message_type, host, args.dest_port, client_ip,
-                from_user=from_user_value, to_user=to_user_value, protocol="socket", wait=True,
-                timeout=response_timeout,
+            found = _scan_one(
+                (host, *user_pairs[0]), message_type, args.dest_port, client_ip, args.ip_list, response_timeout,
             )
-            try:
-                result = packet.generate_packet()
-                net_utils.printResult(result, host, args.ip_list)
-                counter = 1
-            except errors.PacketSendError:
-                counter = 0
+            counter = 1 if found is not None else 0
 
     logger.info(
         theme.panel("SIP-NES summary", [f"{counter} live IP address(es) found."])

@@ -143,7 +143,7 @@ def main():
             das.run(args, conf, client_ip, client_netmask)
         else:
             logger.info("No module specified.")
-            logger.info("To get more out of Mr.SIP, check out the PRO version: https://mrsip.gitlab.io/")
+            logger.info("To get more out of Mr.SIP, check out the PRO version: https://www.mrsip.pro/")
             show_time = False
     except errors.MrSipError as e:
         logger.error(str(e))

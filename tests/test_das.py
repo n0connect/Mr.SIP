@@ -214,6 +214,14 @@ class TestZeroCounterMeansInfinite:
         wordlist.write_text("1000\n")
 
         monkeypatch.setattr(das.net_utils, "promisc", lambda state, iface: None)
+        # Without this, the flood loop performs a real UDP connect()+sendall()
+        # to 127.0.0.1:5060 with nothing listening - whether that raises
+        # ConnectionRefusedError depends on OS/timing-specific ICMP
+        # port-unreachable delivery to the connected socket, which is flaky
+        # across platforms (passed locally on macOS, failed deterministically
+        # on Linux CI). Mocking it removes the dependency on real network
+        # behavior entirely, matching every other flood-loop test in this file.
+        monkeypatch.setattr(das.sip_packet.sip_packet, "generate_packet", lambda self: {"status": True})
 
         sent_lengths = []
 

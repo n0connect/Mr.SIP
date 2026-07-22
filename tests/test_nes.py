@@ -254,12 +254,12 @@ class TestNesRunSingleProbe:
 
 
 class TestNesFileValidation:
-    def test_looks_like_file_checks(self):
+    def test_looks_like_file_checks(self, tmp_path):
         # A file that doesn't exist but has path separators or a common ext should throw MrSipError
         args = argparse.Namespace(
             target_network="127.0.0.1", message_type="options",
             from_user="/path/to/nonexistent.txt", to_user="8000", dest_port=5060,
-            ip_list="output/ip_list.txt", response_timeout=5.0,
+            ip_list=str(tmp_path / "ip_list.txt"), response_timeout=5.0,
         )
         conf = argparse.Namespace(iface="lo0")
         with pytest.raises(errors.MrSipError) as exc_info:
@@ -271,7 +271,7 @@ class TestNesFileValidation:
         args = argparse.Namespace(
             target_network="127.0.0.1", message_type="options",
             from_user="1000", to_user="8000", dest_port=5060,
-            ip_list="output/ip_list.txt", response_timeout=5.0,
+            ip_list=str(tmp_path / "ip_list.txt"), response_timeout=5.0,
         )
         # Mock generate_packet to avoid networking
         from unittest.mock import patch

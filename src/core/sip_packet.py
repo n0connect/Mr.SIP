@@ -37,7 +37,15 @@ def _read_template(template_path):
 
 
 class sip_packet:
-    """
+    """Builds and sends one SIP message from a data/method/*.message template.
+
+    fill_packet_data() fills in the template's [[placeholder]] tokens (the
+    full set recognized is listed below) and generate_packet() sends the
+    result via plain UDP ("socket") or a raw Scapy IP/UDP packet ("scapy",
+    with optional spoofed source IP). One instance represents one message -
+    a fresh sip_packet is constructed per probe/packet, not reused.
+
+    Recognized template placeholders:
     [[server_ip]]
     [[server_port]]
     [[client_ip]]
@@ -120,29 +128,45 @@ class sip_packet:
 
     def fill_packet_data(self, text):
         var_dict = {
-            "[[server_ip]]": str(self.server_ip),
-            "[[server_port]]": str(self.server_port),
-            "[[client_ip]]": str(self.client_ip),
-            "[[client_port]]": str(self.client_port),
-            "[[from_user]]": str(self.from_user),
-            "[[to_user]]": str(self.to_user),
-            "[[user_agent]]": str(self.user_agent),
-            "[[sp_user]]": str(self.sp_user),
-            "[[expire_duration]]": str(self.expire_duration),
-            "[[call_id]]": str(self.get_rand_call_id()),
-            "[[branch_value]]": str(self.get_rand_branch()),
-            "[[tag_value]]": str(self.get_rand_tag()),
+            "server_ip": str(self.server_ip),
+            "server_port": str(self.server_port),
+            "client_ip": str(self.client_ip),
+            "client_port": str(self.client_port),
+            "from_user": str(self.from_user),
+            "to_user": str(self.to_user),
+            "user_agent": str(self.user_agent),
+            "sp_user": str(self.sp_user),
+            "expire_duration": str(self.expire_duration),
+            "call_id": str(self.get_rand_call_id()),
+            "branch_value": str(self.get_rand_branch()),
+            "tag_value": str(self.get_rand_tag()),
         }
 
-        for key, value in list(var_dict.items()):
+        def _substitute(match):
+            if match.group(1) not in var_dict:
+                # Unrecognized token (not one of the 12 known placeholders) -
+                # left untouched, matching the old behavior where a
+                # .replace() for an unknown key simply never matched.
+                return match.group(0)
+            value = var_dict[match.group(1)]
             sanitized = value.replace("\r", "").replace("\n", "")
             # Drop lone surrogates (e.g. from a CLI argument containing
             # invalid-UTF-8 bytes - argv is decoded with errors="surrogateescape",
             # so this is reachable from real command-line input, not just
             # crafted wordlist files). Left in, the final .encode("utf-8")
             # below would raise UnicodeEncodeError and crash the whole run.
-            sanitized = sanitized.encode("utf-8", errors="ignore").decode("utf-8")
-            text = text.replace(key, sanitized)
+            return sanitized.encode("utf-8", errors="ignore").decode("utf-8")
+
+        # A single pass over the original template text, not one .replace()
+        # call per placeholder chained over the accumulating result: chained
+        # replacement meant a value substituted for an earlier placeholder
+        # (from_user) that happened to contain the literal text of a later
+        # one ("[[call_id]]") got re-substituted a second time by that later
+        # placeholder's own real value, silently corrupting an unrelated
+        # field. re.sub() with a callback only ever matches against the
+        # original text, so a substituted value's contents are never
+        # rescanned for further placeholders.
+        text = re.sub(r"\[\[(\w+)\]\]", _substitute, text)
         return text.encode("utf-8")
 
     def generate_packet(self):

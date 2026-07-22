@@ -17,6 +17,39 @@ class TestFoundLevel:
         assert caplog.records[0].getMessage() == "hit: 127.0.0.1"
 
 
+class TestFoundUnconfirmedLevel:
+    def test_found_unconfirmed_level_is_registered_between_info_and_found(self):
+        assert logging.INFO < logging_config.FOUND_UNCONFIRMED < logging_config.FOUND
+        assert logging.getLevelName(logging_config.FOUND_UNCONFIRMED) == "FOUND_UNCONFIRMED"
+
+    def test_logger_found_unconfirmed_method_logs_at_found_unconfirmed_level(self, caplog):
+        logger = logging.getLogger("test-found-unconfirmed-logger")
+        logger.setLevel(logging.DEBUG)
+        with caplog.at_level(logging_config.FOUND_UNCONFIRMED, logger="test-found-unconfirmed-logger"):
+            logger.found_unconfirmed("maybe: %s", "127.0.0.1")
+        assert caplog.records[0].levelno == logging_config.FOUND_UNCONFIRMED
+        assert caplog.records[0].getMessage() == "maybe: 127.0.0.1"
+
+
+class TestBlanketWarnLevel:
+    def test_blanket_warn_level_is_at_or_above_warning(self):
+        # Must stay >= logging.WARNING, not just close to it - callers
+        # elsewhere in the test suite (test_das.py, test_nes.py, ...) use
+        # caplog.at_level(logging.WARNING) as a capture *threshold*, not an
+        # exact-match filter. A level below WARNING would silently vanish
+        # from any test using that pattern to catch this specific warning.
+        assert logging_config.BLANKET_WARN >= logging.WARNING
+        assert logging.getLevelName(logging_config.BLANKET_WARN) == "BLANKET_WARN"
+
+    def test_logger_blanket_warn_method_logs_at_blanket_warn_level(self, caplog):
+        logger = logging.getLogger("test-blanket-warn-logger")
+        logger.setLevel(logging.DEBUG)
+        with caplog.at_level(logging_config.BLANKET_WARN, logger="test-blanket-warn-logger"):
+            logger.blanket_warn("blanket: %s", "127.0.0.1")
+        assert caplog.records[0].levelno == logging_config.BLANKET_WARN
+        assert caplog.records[0].getMessage() == "blanket: 127.0.0.1"
+
+
 class TestColorFormatter:
     def _record(self, levelno, message):
         return logging.LogRecord("test", levelno, __file__, 1, message, None, None)
@@ -40,6 +73,27 @@ class TestColorFormatter:
         output = formatter.format(self._record(logging_config.FOUND, "found it"))
         assert theme.SUCCESS in output
         assert "FOUND" in theme.strip_ansi(output)
+
+    def test_found_unconfirmed_level_uses_warning_color_but_found_tag(self, monkeypatch):
+        # Yellow "[ FOUND ]" - visually distinct from a confirmed finding's
+        # green tag, but still reads as FOUND (a result was returned, just
+        # not trustworthy against a blanket-rejecting target) rather than a
+        # generic warning.
+        monkeypatch.setattr(theme, "supports_color", lambda: True)
+        formatter = logging_config.ColorFormatter(logging_config.CONSOLE_FORMAT)
+        output = formatter.format(self._record(logging_config.FOUND_UNCONFIRMED, "maybe found it"))
+        assert theme.WARNING in output
+        assert "FOUND" in theme.strip_ansi(output)
+
+    def test_blanket_warn_level_uses_error_color_but_warn_tag(self, monkeypatch):
+        # Red "[ WARN ]" - deliberately more alarming than a normal warning,
+        # reserved for SIP-ENUM's F6 blanket-rejection signal specifically
+        # (see CLAUDE.md F40/F41) so it stands out from routine WARN noise.
+        monkeypatch.setattr(theme, "supports_color", lambda: True)
+        formatter = logging_config.ColorFormatter(logging_config.CONSOLE_FORMAT)
+        output = formatter.format(self._record(logging_config.BLANKET_WARN, "blanket reject warning"))
+        assert theme.ERROR in output
+        assert "WARN" in theme.strip_ansi(output)
 
     def test_critical_level_has_its_own_tag(self, monkeypatch):
         monkeypatch.setattr(theme, "supports_color", lambda: False)

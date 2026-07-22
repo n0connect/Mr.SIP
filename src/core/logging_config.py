@@ -22,13 +22,54 @@ def _found(self, message, *args, **kwargs):
 
 logging.Logger.found = _found
 
+# Two more custom levels, both specific to SIP-ENUM's F6 blanket-rejection
+# scenario (see CLAUDE.md F6/F40/F41): a target that rejects every unmatched
+# request the same way makes routine WARN/FOUND coloring blend in with the
+# rest of a run, even though this is exactly the moment an operator most
+# needs their eye drawn to. Distinct levels - not just a different color at
+# the same levelno - keep both filterable/greppable in the file log too,
+# same reasoning FOUND itself was originally given.
+
+# A "found" result that matched the target's own blanket-rejection baseline
+# (see enum.py's _classify_confidence()) - still shown by default (sits
+# above INFO), but as a distinct, yellow "[ FOUND ]" so it doesn't read as
+# equally trustworthy as a real (green) FOUND.
+FOUND_UNCONFIRMED = 24
+logging.addLevelName(FOUND_UNCONFIRMED, "FOUND_UNCONFIRMED")
+
+
+def _found_unconfirmed(self, message, *args, **kwargs):
+    if self.isEnabledFor(FOUND_UNCONFIRMED):
+        self._log(FOUND_UNCONFIRMED, message, args, **kwargs)
+
+
+logging.Logger.found_unconfirmed = _found_unconfirmed
+
+# SIP-ENUM's pre-flight blanket-rejection warning. Kept at/above
+# logging.WARNING (not below it) so existing callers that use
+# caplog.at_level(logging.WARNING)/--verbose-independent thresholds elsewhere
+# in this tool still capture it - only the *color* is meant to differ, not
+# whether it's shown by default.
+BLANKET_WARN = 31
+logging.addLevelName(BLANKET_WARN, "BLANKET_WARN")
+
+
+def _blanket_warn(self, message, *args, **kwargs):
+    if self.isEnabledFor(BLANKET_WARN):
+        self._log(BLANKET_WARN, message, args, **kwargs)
+
+
+logging.Logger.blanket_warn = _blanket_warn
+
 # levelno -> (short tag, color). Tags are padded to equal width in
 # ColorFormatter so console output stays aligned regardless of level.
 _LEVEL_STYLE = {
     logging.DEBUG: ("DEBUG", theme.MUTED),
     logging.INFO: ("INFO", theme.ACCENT),
+    FOUND_UNCONFIRMED: ("FOUND", theme.WARNING),
     FOUND: ("FOUND", theme.SUCCESS),
     logging.WARNING: ("WARN", theme.WARNING),
+    BLANKET_WARN: ("WARN", theme.ERROR),
     logging.ERROR: ("ERROR", theme.ERROR),
     logging.CRITICAL: ("CRIT", theme.CRITICAL),
 }

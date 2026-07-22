@@ -4,6 +4,19 @@ from src import __version__
 from src.cli import build_parser, main
 
 
+def test_no_module_specified_points_to_the_live_pro_site(monkeypatch, capsys):
+    # Regression: this message used to point at https://mrsip.gitlab.io/,
+    # which redirects to a GitLab Pages auth wall with no reachable content
+    # (see CHANGELOG.md 1.5.1 - the same dead link was already fixed in
+    # README.md/docs/mrsip-pro.md, but this runtime message was missed, so
+    # it kept sending real operators to a dead page).
+    monkeypatch.setattr("sys.argv", ["mr.sip.py"])
+    main()
+    out = capsys.readouterr().out
+    assert "mrsip.gitlab.io" not in out
+    assert "https://www.mrsip.pro/" in out
+
+
 def test_version_flag(capsys):
     with pytest.raises(SystemExit) as exc_info:
         build_parser().parse_args(["--version"])
@@ -133,3 +146,52 @@ class TestFlagAliases:
     def test_das_aliases(self, flag):
         args = build_parser().parse_args([flag, "--tn=127.0.0.1"])
         assert args.dos_attack_simulator is True
+
+
+class TestRootPrivilegeCheck:
+    def test_das_without_l_as_non_root_is_a_clean_exit_not_a_traceback(self, monkeypatch, capsys):
+        # SIP-DAS's default (Scapy raw packet / spoofing) mode needs root.
+        # Without this upfront check, a non-root run used to fail deep
+        # inside Scapy with a much less clear permission error, well after
+        # wordlists/liveness-probe work had already happened.
+        monkeypatch.setattr("os.geteuid", lambda: 1000)
+        monkeypatch.setattr(
+            "sys.argv",
+            ["mr.sip.py", "--das", "--mt=invite", "-c", "1", "--tn=127.0.0.1"],
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+        assert exc_info.value.code == 1
+        out = capsys.readouterr().out
+        assert "root privileges" in out
+        assert "sudo" in out
+
+    def test_das_with_l_as_non_root_skips_the_check(self, monkeypatch, capsys):
+        # -l (socket library mode) needs no raw packets/spoofing, so it must
+        # not require root - proven here by letting the run fail at the
+        # next validation step (a bad --to wordlist) instead of the root
+        # check, which would fail first if it incorrectly still applied.
+        monkeypatch.setattr("os.geteuid", lambda: 1000)
+        monkeypatch.setattr(
+            "sys.argv",
+            ["mr.sip.py", "--das", "--mt=invite", "-c", "1", "--tn=127.0.0.1", "--to=/nonexistent/wordlist.txt", "-l"],
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+        assert exc_info.value.code == 1
+        out = capsys.readouterr().out
+        assert "root privileges" not in out
+        assert "File not found" in out
+
+    def test_das_without_l_as_root_skips_the_check(self, monkeypatch, capsys):
+        monkeypatch.setattr("os.geteuid", lambda: 0)
+        monkeypatch.setattr(
+            "sys.argv",
+            ["mr.sip.py", "--das", "--mt=invite", "-c", "1", "--tn=127.0.0.1", "--to=/nonexistent/wordlist.txt"],
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+        assert exc_info.value.code == 1
+        out = capsys.readouterr().out
+        assert "root privileges" not in out
+        assert "File not found" in out
