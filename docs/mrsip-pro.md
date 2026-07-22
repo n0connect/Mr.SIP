@@ -4,6 +4,10 @@
 
 This repository is the **public, open-source** edition of Mr.SIP — 3 modules, console-only, free to use and modify under its GPLv3 license. **[Mr.SIP Pro](https://www.mrsip.pro/)** is the commercial edition built on the same core: a full-stack VoIP security testing platform for teams that need the complete attack surface, structured reporting, and a GUI — not just the open-source starting point.
 
+<div align="center">
+<img src="../assets/screenshots/mrsip-pro-webpage-screenshot.png" alt="mrsip.pro homepage" width="700">
+</div>
+
 ## Why teams upgrade
 
 The public repo you're reading is deliberately scoped: three modules, no installer, no GUI. Mr.SIP Pro exists for the parts of a real VoIP engagement that scope doesn't cover — traffic interception, credential cracking, signaling manipulation, and multi-step scenario automation — built on the same research lineage that put Mr.SIP on stage at Black Hat Arsenal, DEF CON, and Offzone Moscow (see [README.md's Global Stage Recognition](../README.md#global-stage-recognition) for the verified presentation history).

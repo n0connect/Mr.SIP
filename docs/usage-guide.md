@@ -111,7 +111,17 @@ When an extension does not require authentication (a critical security bypass), 
 <img src="../assets/screenshots/SIP-ENUM2.png" alt="SIP-ENUM bypass detection" width="700">
 </div>
 
-**Since 1.6.0**, a 401/403 finding that matches the target's own blanket-rejection baseline (see the `chan_sip`/`chan_pjsip` note below) renders as a yellow `[ FOUND ]` instead of the usual green one, and the blanket-rejection warning itself renders as a red `[ WARN ]` instead of a routine one - both are deliberately more visually distinct than the text alone, so the distinction is easy to notice on a live/scrolling run, not just on a careful re-read of the log.
+**Since 1.6.0**, a 401/403 finding that matches the target's own blanket-rejection baseline (see the `chan_sip`/`chan_pjsip` note below) renders as a yellow `[ FOUND ]` instead of the usual green one, and the blanket-rejection warning itself renders as a red `[ WARN ]` instead of a routine one - both are deliberately more visually distinct than the text alone, so the distinction is easy to notice on a live/scrolling run, not just on a careful re-read of the log:
+
+<div align="center">
+<img src="../assets/screenshots/SIP-ENUM3.png" alt="SIP-ENUM blanket-rejection warning, rendered in red" width="700">
+</div>
+
+Same run, scrolled to the results: every probe matches the pre-flight baseline, so all five findings render as yellow `[ FOUND ]` (unconfirmed) instead of the green line a genuinely distinguishing result would get, and the summary panel splits the count accordingly:
+
+<div align="center">
+<img src="../assets/screenshots/SIP-ENUM4.png" alt="SIP-ENUM unconfirmed findings, rendered in yellow, with a confirmed/unconfirmed summary split" width="700">
+</div>
 
 ## SIP-DAS — DoS Attack Simulator
 
