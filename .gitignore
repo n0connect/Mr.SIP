@@ -125,3 +125,6 @@ pbx-config/
 # Local scratch / runtime artifacts
 *.local
 .env.local
+
+# Scan output (SIP-NES/SIP-ENUM results - may contain real target data, never commit)
+output/*.txt

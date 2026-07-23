@@ -31,8 +31,8 @@ Passing your own --from/--to (of any size) opts into that. Without an explicit -
 sends a single generic probe per target instead of exploding against the bundled 9000-line
 default wordlists.
 """
-ENUM_USAGE = """python3 mr.sip.py --enum --from=output/from.txt
-python3 mr.sip.py --enum --tn=<target_IP> --from=output/from.txt
+ENUM_USAGE = """python3 mr.sip.py --enum --from=<wordlist.txt>
+python3 mr.sip.py --enum --tn=<target_IP> --from=<wordlist.txt>
 """
 DAS_USAGE = """python3 mr.sip.py --das --mt=invite -c <packet_count> --tn=<target_IP> -r
 python3 mr.sip.py --das --mt=invite -c <packet_count> --tn=<target_IP> -s

@@ -88,8 +88,8 @@ python3 mr.sip.py --nes --tn=<target_network_address> --mt=subscribe --from=<fro
 ## SIP-ENUM — Enumerator
 
 ```bash
-python3 mr.sip.py --enum --from=output/from.txt
-python3 mr.sip.py --enum --tn=<target_IP> --from=output/from.txt
+python3 mr.sip.py --enum --from=<wordlist.txt>
+python3 mr.sip.py --enum --tn=<target_IP> --from=<wordlist.txt>
 ```
 
 | Note | |
