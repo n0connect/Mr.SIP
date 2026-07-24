@@ -129,6 +129,35 @@ def _resolve_live_worker(target, message_type, dest_port, client_ip, override_ti
     return {"target": target, "is_blanket": is_blanket, "code": code, "user": random_user}
 
 
+def _log_tiered(items, log_single, log_few, log_many):
+    """Log a tiered summary for a list of items instead of one line per item:
+    a full single-item message for exactly one, a "name everything" message
+    for 2-5, and a count-only message for 6+ - avoids a wall of near-
+    identical lines on a large host list while still naming names for a
+    small one.
+
+    log_single(item) is called for exactly one item, log_few(items) for
+    2-5, log_many(count) for 6+ - each callback owns its own message
+    wording and logger level, since callers here log at different levels
+    (logging.WARNING vs. the dedicated BLANKET_WARN) with different
+    argument shapes (a bare target string vs. a (target, code, user) tuple).
+
+    Both of _resolve_live_targets()'s tiered warnings (skipped targets,
+    blanket-rejecting targets) used to implement this same three-way split
+    independently - they drifted out of sync once already (F37 in
+    CLAUDE.md: one copy had the >5 cap, the other didn't), which this single
+    shared implementation makes structurally impossible.
+    """
+    if not items:
+        return
+    if len(items) == 1:
+        log_single(items[0])
+    elif len(items) <= 5:
+        log_few(items)
+    else:
+        log_many(len(items))
+
+
 def _resolve_live_targets(target_networks, message_type, dest_port, client_ip, skip_live_check, thread_count=1, override_timeout=None):
     """Filter target_networks down to the ones that actually respond to a
     quick liveness probe - enumerating a target that never answers at all
@@ -178,26 +207,21 @@ def _resolve_live_targets(target_networks, message_type, dest_port, client_ip, s
                 blanket_rejecting.append((res["target"], res["code"], res["user"]))
 
     skipped_targets = [t for t in target_networks if t not in live_targets]
-    if skipped_targets:
-        if len(skipped_targets) == 1:
-            logger.warning(
-                "Target %s did not respond to a liveness probe - skipping it. "
-                "Use --skip-live-check to enumerate it anyway.",
-                skipped_targets[0]
-            )
-        elif len(skipped_targets) <= 5:
-            targets_str = ", ".join(skipped_targets)
-            logger.warning(
-                "Targets [%s] did not respond to a liveness probe - skipping them. "
-                "Use --skip-live-check to enumerate them anyway.",
-                targets_str
-            )
-        else:
-            logger.warning(
-                "%d target(s) did not respond to a liveness probe - skipping them. "
-                "Use --skip-live-check to enumerate anyway.",
-                len(skipped_targets)
-            )
+    _log_tiered(
+        skipped_targets,
+        log_single=lambda t: logger.warning(
+            "Target %s did not respond to a liveness probe - skipping it. "
+            "Use --skip-live-check to enumerate it anyway.", t
+        ),
+        log_few=lambda ts: logger.warning(
+            "Targets [%s] did not respond to a liveness probe - skipping them. "
+            "Use --skip-live-check to enumerate them anyway.", ", ".join(ts)
+        ),
+        log_many=lambda n: logger.warning(
+            "%d target(s) did not respond to a liveness probe - skipping them. "
+            "Use --skip-live-check to enumerate anyway.", n
+        ),
+    )
 
     if blanket_rejecting:
         # blanket_warn (not plain warning()) - a dedicated, red-tagged level
@@ -213,30 +237,24 @@ def _resolve_live_targets(target_networks, message_type, dest_port, client_ip, s
             "e.g. PJSIP's endpoint-matching behavior, or chan_sip with alwaysauthreject "
             "enabled (Asterisk's default since 1.8, ~2011)"
         )
-        if len(blanket_rejecting) == 1:
-            target, code, random_user = blanket_rejecting[0]
-            logger.blanket_warn(
+        _log_tiered(
+            blanket_rejecting,
+            log_single=lambda item: logger.blanket_warn(
                 "Target %s returned %d for nonexistent user '%s'. "
                 "The server may be using blanket-rejection (%s); extension enumeration might produce false positives.",
-                target, code, random_user, blanket_rejection_reason
-            )
-        elif len(blanket_rejecting) <= 5:
-            targets_str = ", ".join(t[0] for t in blanket_rejecting)
-            logger.blanket_warn(
+                item[0], item[1], item[2], blanket_rejection_reason
+            ),
+            log_few=lambda items: logger.blanket_warn(
                 "Targets [%s] returned 401/403 for nonexistent users. "
                 "The servers may be using blanket-rejection (%s); extension enumeration might produce false positives.",
-                targets_str, blanket_rejection_reason
-            )
-        else:
-            # Same cap as the skipped_targets case above - past a handful of
-            # targets, one line naming every IP (200+ on a full /24 of
-            # identical blanket-rejecting boxes) is worse noise than the
-            # per-target warnings it replaced, not better (see F33 in CLAUDE.md).
-            logger.blanket_warn(
+                ", ".join(t[0] for t in items), blanket_rejection_reason
+            ),
+            log_many=lambda n: logger.blanket_warn(
                 "%d target(s) returned 401/403 for nonexistent users. "
                 "The servers may be using blanket-rejection (%s); extension enumeration might produce false positives.",
-                len(blanket_rejecting), blanket_rejection_reason
-            )
+                n, blanket_rejection_reason
+            ),
+        )
 
     return live_targets, baseline_map
 

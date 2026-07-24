@@ -72,6 +72,13 @@ def _warn_if_experimental_user_lists(user_pairs, args):
         )
 
 
+def _looks_like_file(path: str) -> bool:
+    if "/" in path or "\\" in path:
+        return True
+    _, ext = os.path.splitext(path)
+    return bool(ext and ext.lower() in (".txt", ".lst", ".csv", ".log", ".wordlist"))
+
+
 def _resolve_target_networks(args, user_pairs, value_errors):
     """Expand --tn into the list of individual target IPs to probe.
 
@@ -111,12 +118,6 @@ def run(args, conf, client_ip):
     message_type = args.message_type.lower() if args.message_type else "options"
     if args.target_network is None:
         value_errors.append("Please specify a valid target network using the --tn flag.")
-
-    def _looks_like_file(path: str) -> bool:
-        if "/" in path or "\\" in path:
-            return True
-        _, ext = os.path.splitext(path)
-        return bool(ext and ext.lower() in (".txt", ".lst", ".csv", ".log", ".wordlist"))
 
     if not os.path.isfile(args.from_user) and _looks_like_file(args.from_user):
         value_errors.append(f"File not found: '{args.from_user}'. If you intended to specify a literal username, avoid using common file extensions or path separators.")

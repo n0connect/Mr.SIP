@@ -8,19 +8,25 @@ from src.core import theme
 CONSOLE_FORMAT = "%(message)s"
 FILE_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
+def _make_log_method(level):
+    """Build a logging.Logger method that logs at a fixed custom *level*.
+
+    Every custom level below (FOUND, FOUND_UNCONFIRMED, BLANKET_WARN) needs
+    the exact same three-line method - only the level constant it closes
+    over differs - so it's generated once here instead of once per level.
+    """
+    def _log_method(self, message, *args, **kwargs):
+        if self.isEnabledFor(level):
+            self._log(level, message, args, **kwargs)
+    return _log_method
+
+
 # Custom level for "a live target / valid extension was found" results.
 # Sits between INFO and WARNING so it's a real, filterable log level instead
 # of the old ad-hoc "[+]" string prefix buried inside .info() messages.
 FOUND = 25
 logging.addLevelName(FOUND, "FOUND")
-
-
-def _found(self, message, *args, **kwargs):
-    if self.isEnabledFor(FOUND):
-        self._log(FOUND, message, args, **kwargs)
-
-
-logging.Logger.found = _found
+logging.Logger.found = _make_log_method(FOUND)
 
 # Two more custom levels, both specific to SIP-ENUM's F6 blanket-rejection
 # scenario (see CLAUDE.md F6/F40/F41): a target that rejects every unmatched
@@ -36,14 +42,7 @@ logging.Logger.found = _found
 # equally trustworthy as a real (green) FOUND.
 FOUND_UNCONFIRMED = 24
 logging.addLevelName(FOUND_UNCONFIRMED, "FOUND_UNCONFIRMED")
-
-
-def _found_unconfirmed(self, message, *args, **kwargs):
-    if self.isEnabledFor(FOUND_UNCONFIRMED):
-        self._log(FOUND_UNCONFIRMED, message, args, **kwargs)
-
-
-logging.Logger.found_unconfirmed = _found_unconfirmed
+logging.Logger.found_unconfirmed = _make_log_method(FOUND_UNCONFIRMED)
 
 # SIP-ENUM's pre-flight blanket-rejection warning. Kept at/above
 # logging.WARNING (not below it) so existing callers that use
@@ -52,14 +51,7 @@ logging.Logger.found_unconfirmed = _found_unconfirmed
 # whether it's shown by default.
 BLANKET_WARN = 31
 logging.addLevelName(BLANKET_WARN, "BLANKET_WARN")
-
-
-def _blanket_warn(self, message, *args, **kwargs):
-    if self.isEnabledFor(BLANKET_WARN):
-        self._log(BLANKET_WARN, message, args, **kwargs)
-
-
-logging.Logger.blanket_warn = _blanket_warn
+logging.Logger.blanket_warn = _make_log_method(BLANKET_WARN)
 
 # levelno -> (short tag, color). Tags are padded to equal width in
 # ColorFormatter so console output stays aligned regardless of level.

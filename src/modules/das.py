@@ -196,10 +196,10 @@ def run(args, conf, client_ip, client_netmask):
                         client = net_utils.randomIPAddressFromNetwork(client_ip, client_netmask, False)
 
                     packet = sip_packet.sip_packet(
-                        str(message_type), str(args.target_network), str(args.dest_port),
-                        str(client), str(fromUser), str(toUser), str(userAgent), str(spUser),
-                        send_protocol, mtu=args.mtu, scapy_socket=scapy_socket,
-                        client_socket=client_socket,
+                        method=str(message_type), server_ip=str(args.target_network), server_port=str(args.dest_port),
+                        client_ip=str(client), from_user=str(fromUser), to_user=str(toUser),
+                        user_agent=str(userAgent), sp_user=str(spUser), protocol=send_protocol,
+                        mtu=args.mtu, scapy_socket=scapy_socket, client_socket=client_socket,
                     )
                     i += 1
                     send_start = time.time()
