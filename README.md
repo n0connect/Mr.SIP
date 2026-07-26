@@ -5,6 +5,7 @@
 **SIP Security, Attack and Audit Framework**
 
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
+[![CI](https://github.com/n0connect/Mr.SIP/actions/workflows/ci.yml/badge.svg?branch=mrsip-dev)](https://github.com/n0connect/Mr.SIP/actions/workflows/ci.yml)
 
 [![Black Hat Arsenal](assets/badges/BlackHatArsenalEU2019badge.svg)](https://www.blackhat.com/eu-19/arsenal/schedule/#mrsip-sip-based-audit--attack-tool-18190)
 [![Black Hat Arsenal](assets/badges/BlackHatArsenalUSA2019badge.svg)](https://www.blackhat.com/us-19/arsenal/schedule/index.html#mrsip-sip-based-audit--attack-tool-16866)
