@@ -83,9 +83,9 @@ class TestDefaults:
         # None (not 5.0) at parse time is deliberate: nes.py/enum.py/das.py
         # each resolve None to the historical 5.0 default themselves, but
         # also use "was --rt explicitly given at all" as a signal to widen
-        # SIP-ENUM/SIP-DAS's liveness pre-check timeout to match (see F28 in
-        # CLAUDE.md) - a bare 5.0 default here would be indistinguishable
-        # from an operator explicitly passing --rt 5.
+        # SIP-ENUM/SIP-DAS's liveness pre-check timeout to match - a bare
+        # 5.0 default here would be indistinguishable from an operator
+        # explicitly passing --rt 5.
         args = build_parser().parse_args(["--nes", "--tn=127.0.0.1"])
         assert args.response_timeout is None
 

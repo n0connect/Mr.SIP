@@ -90,8 +90,8 @@ class sip_packet:
         self.expire_duration = expire_duration
         self.wait = wait
         self.mtu = mtu
-        # Optional persistent raw socket for protocol="scapy" sends (see
-        # F26 in CLAUDE.md). Left as None, scapy.send()'s own default
+        # Optional persistent raw socket for protocol="scapy" sends.
+        # Left as None, scapy.send()'s own default
         # behavior (open a fresh raw L3 socket, send one packet, close it)
         # is unchanged - callers doing a flood loop of many scapy sends
         # against the same target (das.py) build one socket once and pass
@@ -180,9 +180,9 @@ class sip_packet:
             # - technically caught (no traceback), but the message itself
             # leaked the local install path and gave no hint of what a
             # valid value looks like. --mt is free-text (any *.message file
-            # name is accepted, including custom ones - see CLAUDE.md), so
-            # this can't be an argparse choices= validator; list what's
-            # actually available instead.
+            # name is accepted, including custom ones), so this can't be an
+            # argparse choices= validator; list what's actually available
+            # instead.
             available = ", ".join(sorted(p.stem for p in Path(self.method_location).glob("*.message")))
             raise errors.TemplateNotFoundError(
                 f"Unknown message type: '{self.method}'. Available: {available}."

@@ -20,7 +20,7 @@ def _open_scapy_socket(target, iface_hint):
     scapy.sendrecv._send: `need_closing = socket is None`). In das.py's
     flood loop that means a raw-socket open/close cycle per packet instead
     of per run, real overhead in the one code path whose entire purpose is
-    sending as fast as possible (F26 in CLAUDE.md). Safe to build once here
+    sending as fast as possible. Safe to build once here
     because args.target_network is fixed for the whole loop - the same
     invariant default_client_ip above already relies on - so the routing
     lookup that determines the outgoing interface can't change mid-flood.
@@ -125,8 +125,8 @@ def run(args, conf, client_ip, client_netmask):
         # unreachable regardless of how long --rt told the flood to wait).
         timeout_kwargs = {} if args.response_timeout is None else {"timeout": args.response_timeout}
         if not args.skip_live_check and net_utils.probe_liveness(args.target_network, args.dest_port, client_ip, **timeout_kwargs) is None:
-            # Warn, never block - SIP-DAS deliberately has no dry-run gate
-            # (see CLAUDE.md): an operator may legitimately want to flood a
+            # Warn, never block - SIP-DAS deliberately has no dry-run gate:
+            # an operator may legitimately want to flood a
             # target that doesn't respond to casual probes (filtered,
             # intentionally silent, etc.). This is purely informational, so
             # a typo'd or wrong target doesn't burn the whole flood duration
@@ -156,8 +156,8 @@ def run(args, conf, client_ip, client_netmask):
         send_time_count = 0
 
         # One persistent raw socket for the whole flood run instead of
-        # scapy.send() opening/closing a fresh one per packet - see F26 in
-        # CLAUDE.md and _open_scapy_socket()'s own docstring above.
+        # scapy.send() opening/closing a fresh one per packet - see
+        # _open_scapy_socket()'s own docstring above.
         scapy_socket = _open_scapy_socket(args.target_network, conf.iface) if send_protocol == "scapy" else None
 
         # One persistent UDP socket for socket library mode, preventing ephemeral port exhaustion.

@@ -28,8 +28,8 @@ FOUND = 25
 logging.addLevelName(FOUND, "FOUND")
 logging.Logger.found = _make_log_method(FOUND)
 
-# Two more custom levels, both specific to SIP-ENUM's F6 blanket-rejection
-# scenario (see CLAUDE.md F6/F40/F41): a target that rejects every unmatched
+# Two more custom levels, both specific to SIP-ENUM's blanket-rejection
+# scenario: a target that rejects every unmatched
 # request the same way makes routine WARN/FOUND coloring blend in with the
 # rest of a run, even though this is exactly the moment an operator most
 # needs their eye drawn to. Distinct levels - not just a different color at

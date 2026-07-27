@@ -408,8 +408,8 @@ def expand_target_network(target_network, value_errors=None):
     KeyboardInterrupt; anything else would crash with a raw traceback).
     Only ValueError/IndexError from malformed input is caught here - a real
     programming bug (TypeError, AttributeError, ...) should still propagate
-    as itself rather than being relabeled as a validation error (see F19 in
-    CLAUDE.md for the same reasoning applied to sip_packet.generate_packet()).
+    as itself rather than being relabeled as a validation error (same
+    reasoning applied to sip_packet.generate_packet()).
     """
     if "-" in target_network:
         host_range = target_network.split("-")

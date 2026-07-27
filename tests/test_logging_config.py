@@ -87,8 +87,8 @@ class TestColorFormatter:
 
     def test_blanket_warn_level_uses_error_color_but_warn_tag(self, monkeypatch):
         # Red "[ WARN ]" - deliberately more alarming than a normal warning,
-        # reserved for SIP-ENUM's F6 blanket-rejection signal specifically
-        # (see CLAUDE.md F40/F41) so it stands out from routine WARN noise.
+        # reserved for SIP-ENUM's blanket-rejection signal specifically so
+        # it stands out from routine WARN noise.
         monkeypatch.setattr(theme, "supports_color", lambda: True)
         formatter = logging_config.ColorFormatter(logging_config.CONSOLE_FORMAT)
         output = formatter.format(self._record(logging_config.BLANKET_WARN, "blanket reject warning"))

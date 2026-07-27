@@ -42,7 +42,7 @@ def _extract_realm(headers):
 
 def _classify_confidence(code, baseline_code):
     """Is a 401/403 "extension exists" finding trustworthy, or indistinguishable
-    from this target's own blanket-rejection baseline (F6 in CLAUDE.md)?
+    from this target's own blanket-rejection baseline?
 
     baseline_code is the status code a guaranteed-nonexistent random user got
     during the liveness pre-check for this same target - None if no baseline
@@ -55,8 +55,9 @@ def _classify_confidence(code, baseline_code):
     itself a real, actionable finding, not a false positive to suppress.
 
     This assumes a target is internally consistent (same code every time for
-    a blanket reject) - see CLAUDE.md's chan_sip/PJSIP lab notes for why
-    that's the observed behavior, not just an assumption of convenience.
+    a blanket reject) - see CHANGELOG.md's 1.6.0/1.6.4 sections for the live
+    lab evidence behind that assumption, not just an assumption of
+    convenience.
     """
     if code == 200:
         return True
@@ -144,9 +145,9 @@ def _log_tiered(items, log_single, log_few, log_many):
 
     Both of _resolve_live_targets()'s tiered warnings (skipped targets,
     blanket-rejecting targets) used to implement this same three-way split
-    independently - they drifted out of sync once already (F37 in
-    CLAUDE.md: one copy had the >5 cap, the other didn't), which this single
-    shared implementation makes structurally impossible.
+    independently - they drifted out of sync once already (one copy had
+    the >5 cap, the other didn't - see CHANGELOG.md's 1.6.7 section),
+    which this single shared implementation makes structurally impossible.
     """
     if not items:
         return
@@ -163,7 +164,7 @@ def _resolve_live_targets(target_networks, message_type, dest_port, client_ip, s
     quick liveness probe - enumerating a target that never answers at all
     just burns the full wordlist's worth of timeouts for a guaranteed "0
     found" result. Also flags servers that reject every unmatched request
-    the same way (e.g. modern PJSIP) - see F6 in CLAUDE.md/usage-guide.md.
+    the same way (e.g. modern PJSIP) - see docs/usage-guide.md's F6 note.
 
     Passing --skip-live-check disables this entirely (no probing, every
     target is used as given) for operators who already know their targets
@@ -172,10 +173,10 @@ def _resolve_live_targets(target_networks, message_type, dest_port, client_ip, s
     override_timeout is None unless --rt was explicitly given: the probe
     then keeps net_utils.probe_liveness()'s own short fixed timeout (fast,
     good default for scanning many hosts). Passing an explicit --rt is a
-    deliberate "be more patient" request from the operator (see F28/--rt in
-    CLAUDE.md) - without threading it through here too, a genuinely live but
-    slow target would still be silently filtered out as unreachable by this
-    pre-check regardless of how long --rt told the real probes to wait.
+    deliberate "be more patient" request from the operator - without
+    threading it through here too, a genuinely live but slow target would
+    still be silently filtered out as unreachable by this pre-check
+    regardless of how long --rt told the real probes to wait.
 
     Returns (live_targets, baseline_map) - baseline_map maps each live
     target to the status code its own liveness probe (a guaranteed-
@@ -225,10 +226,10 @@ def _resolve_live_targets(target_networks, message_type, dest_port, client_ip, s
 
     if blanket_rejecting:
         # blanket_warn (not plain warning()) - a dedicated, red-tagged level
-        # so this specific F6 signal stands out from routine WARN noise (see
-        # CLAUDE.md F41). Still a warning, not an error: the run continues.
-        # "e.g. PJSIP" alone used to be the whole explanation here - misleading
-        # (F45 in CLAUDE.md): confirmed against Asterisk's own source that
+        # so this specific F6 signal stands out from routine WARN noise.
+        # Still a warning, not an error: the run continues.
+        # "e.g. PJSIP" alone used to be the whole explanation here - misleading:
+        # confirmed against Asterisk's own source that
         # chan_sip blanket-rejects by default too, on any Asterisk since 1.8
         # (~2011) via alwaysauthreject (compiled default flipped from FALSE
         # to TRUE at that release - unrelated to which channel driver is in

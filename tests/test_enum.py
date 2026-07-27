@@ -40,7 +40,7 @@ def test_enum_run_warns_on_blanket_rejection(tmp_path, monkeypatch, caplog):
 
     # Blanket-rejection warnings log at the dedicated BLANKET_WARN level
     # (red "[ WARN ]") rather than plain logging.WARNING, so this specific
-    # signal stands out from routine warnings - see CLAUDE.md F41.
+    # signal stands out from routine warnings.
     warnings = [r.message for r in caplog.records if r.levelno == logging_config.BLANKET_WARN]
     assert any("blanket-rejection" in w for w in warnings)
     # Regression (F45): the warning used to single out PJSIP as "the" cause
@@ -164,7 +164,7 @@ def test_resolve_live_targets_caps_blanket_rejection_summary_past_five(monkeypat
     # skipped_targets branch above has - past 5 it used to join every
     # target IP into one unbounded line (e.g. 20+ IPs on one WARN line for
     # a real /24 of identical PJSIP boxes), which is worse noise than the
-    # per-target warnings it was meant to replace (F33 in CLAUDE.md).
+    # per-target warnings it was meant to replace.
     def mock_probe_liveness(target, *a, **kw):
         return {"status": True, "response": {"code": 401, "headers": {}, "body": ""}}
 
@@ -214,7 +214,7 @@ def test_resolve_live_targets_honors_explicit_rt_override(monkeypatch):
     # Regression: --rt explicitly given must widen the liveness pre-check's
     # patience too - otherwise a genuinely live but slow target is silently
     # filtered out as unreachable regardless of how long --rt told the real
-    # enumeration probes to wait (see F28 follow-up in CLAUDE.md).
+    # enumeration probes to wait.
     seen_kwargs = {}
 
     def _fake_probe_liveness(*a, **kw):
@@ -390,7 +390,7 @@ def test_classify_confidence_exact_baseline_match_is_unconfirmed():
     # Real response matches the blanket-rejection baseline exactly (same
     # code a guaranteed-nonexistent random user also got) - can't tell this
     # apart from every other unmatched request the target rejects the same
-    # way (F6 in CLAUDE.md).
+    # way.
     assert enum._classify_confidence(401, 401) is False
 
 
@@ -441,7 +441,7 @@ def test_check_one_unconfirmed_when_matches_blanket_baseline(monkeypatch, caplog
 
     # Unconfirmed findings log at the dedicated FOUND_UNCONFIRMED level
     # (yellow "[ FOUND ]"), not the regular (green) FOUND level a confirmed
-    # match uses - see CLAUDE.md F41.
+    # match uses.
     with caplog.at_level(logging_config.FOUND_UNCONFIRMED):
         result = enum._check_one(
             ("10.0.0.1", "1000"), "subscribe", 5060, "10.0.0.9", 5.0, {"10.0.0.1": 401},
