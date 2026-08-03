@@ -179,10 +179,21 @@ def run(args, conf, client_ip):
                 int(args.thread_count),
                 extra_args=(message_type, args.dest_port, client_ip, args.ip_list, response_timeout),
             )
-            counter = len(found)
+            # _scan_one() returns the target host on every successful probe,
+            # once per (host, from_user, to_user) triple - counting len(found)
+            # directly double-counts a host that answered more than one
+            # identity pair (the default for --mt=register/subscribe, which
+            # always cross-products the full wordlist - see
+            # _resolve_user_pairs()). A single host answering all 9000
+            # entries of the bundled default wordlist used to report as
+            # "9000 live IP address(es) found" here, while the -i output
+            # file (deduplicated separately by printResult()) correctly held
+            # just the one line. set() makes this count match what the
+            # message actually claims: distinct live hosts, not probe count.
+            counter = len(set(found))
         except KeyboardInterrupt as e:
             found = getattr(e, "results", [])
-            counter = len(found)
+            counter = len(set(found))
             logger.info(
                 theme.panel("SIP-NES summary", [f"{counter} live IP address(es) found."])
             )

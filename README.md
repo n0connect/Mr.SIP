@@ -74,7 +74,7 @@ This repo has a real test suite and CI - see [CHANGELOG.md](CHANGELOG.md) for th
 
 ```bash
 pip install -r tests/requirements-dev.txt
-pytest              # 259 tests, network-free, runs in a couple seconds
+pytest              # 262 tests, network-free, runs in a couple seconds
 ruff check src/ tests/ mr.sip.py
 ```
 

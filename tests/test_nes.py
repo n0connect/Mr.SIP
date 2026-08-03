@@ -202,6 +202,97 @@ class TestNesRunSingleProbe:
 
         assert any("0 live IP address(es) found" in r.message for r in caplog.records)
 
+    def test_bulk_probe_counter_dedupes_by_host_not_by_probe(self, tmp_path, monkeypatch, caplog):
+        # A single target answering every identity pair in a multi-entry
+        # --from/--to cross-product used to be reported as "N live IP
+        # address(es) found" (N = number of successful probes) instead of
+        # "1" (the actual number of distinct live hosts) - counter was
+        # len(found), and _scan_one() returns the host once per successful
+        # probe, not once per host. Reproduced live against a mock target
+        # answering all 9000 default-wordlist REGISTER probes: summary said
+        # "9000 live IP address(es) found" for what -i's own deduplicated
+        # output file correctly recorded as a single host.
+        from_file = tmp_path / "from.txt"
+        from_file.write_text("1000\n1001\n1002\n")
+
+        monkeypatch.setattr(sip_packet, "generate_packet", lambda self: {"status": True})
+        monkeypatch.setattr(nes.threadpool, "confirm_bulk_run", lambda *a, **k: None)
+
+        args = argparse.Namespace(
+            target_network="127.0.0.1", message_type="options",
+            from_user=str(from_file), to_user=nes._DEFAULT_TO_USER,
+            dest_port=5060, ip_list=str(tmp_path / "ip_list.txt"),
+            thread_count=2, response_timeout=5.0,
+        )
+        conf = argparse.Namespace(iface="lo0")
+
+        with caplog.at_level(logging.INFO):
+            nes.run(args, conf, client_ip="10.0.0.1")
+
+        # 3 identity pairs all probed the same single host successfully -
+        # the summary must count 1 distinct live host, not 3 probes.
+        assert any("1 live IP address(es) found" in r.message for r in caplog.records)
+        assert not any("3 live IP address(es) found" in r.message for r in caplog.records)
+
+    def test_bulk_probe_counter_still_counts_multiple_distinct_hosts(self, tmp_path, monkeypatch, caplog):
+        # The set()-based dedup fix must not accidentally collapse genuinely
+        # different hosts down to 1 - only same-host duplicates should merge.
+        # 2 distinct targets (a /30 CIDR - net_utils.expand_target_network()
+        # gives 2 usable host addresses) x 2 identity pairs each (explicit
+        # --from, default --to) = 4 successful probes total, but only 2
+        # distinct live hosts.
+        from_file = tmp_path / "from.txt"
+        from_file.write_text("1000\n1001\n")
+
+        monkeypatch.setattr(sip_packet, "generate_packet", lambda self: {"status": True})
+        monkeypatch.setattr(nes.threadpool, "confirm_bulk_run", lambda *a, **k: None)
+
+        args = argparse.Namespace(
+            target_network="10.0.0.0/30", message_type="options",
+            from_user=str(from_file), to_user=nes._DEFAULT_TO_USER,
+            dest_port=5060, ip_list=str(tmp_path / "ip_list.txt"),
+            thread_count=2, response_timeout=5.0,
+        )
+        conf = argparse.Namespace(iface="lo0")
+
+        with caplog.at_level(logging.INFO):
+            nes.run(args, conf, client_ip="10.0.0.1")
+
+        assert any("2 live IP address(es) found" in r.message for r in caplog.records)
+        assert not any("4 live IP address(es) found" in r.message for r in caplog.records)
+        assert not any("1 live IP address(es) found" in r.message for r in caplog.records)
+
+    def test_keyboard_interrupt_summary_also_dedupes_partial_results(self, tmp_path, monkeypatch, caplog):
+        # F49's fix touched two spots: the normal-completion path above, and
+        # this one - the KeyboardInterrupt handler that logs its own partial
+        # summary before re-raising (see threadpool.run_worker_pool()). Both
+        # read from the same kind of list (host strings, once per successful
+        # probe) and must dedupe the same way.
+        def _raise_with_partial_results(*a, **k):
+            exc = KeyboardInterrupt()
+            exc.results = ["127.0.0.1", "127.0.0.1", "127.0.0.1"]
+            raise exc
+
+        monkeypatch.setattr(nes.threadpool, "run_worker_pool", _raise_with_partial_results)
+        monkeypatch.setattr(nes.threadpool, "confirm_bulk_run", lambda *a, **k: None)
+
+        from_file = tmp_path / "from.txt"
+        from_file.write_text("1000\n1001\n1002\n")
+
+        args = argparse.Namespace(
+            target_network="127.0.0.1", message_type="options",
+            from_user=str(from_file), to_user=nes._DEFAULT_TO_USER,
+            dest_port=5060, ip_list=str(tmp_path / "ip_list.txt"),
+            thread_count=2, response_timeout=5.0,
+        )
+        conf = argparse.Namespace(iface="lo0")
+
+        with caplog.at_level(logging.INFO), pytest.raises(KeyboardInterrupt):
+            nes.run(args, conf, client_ip="10.0.0.1")
+
+        assert any("1 live IP address(es) found" in r.message for r in caplog.records)
+        assert not any("3 live IP address(es) found" in r.message for r in caplog.records)
+
     def test_response_timeout_reaches_sip_packet_single_probe_path(self, tmp_path, monkeypatch):
         # --rt exists specifically so a large-range scan (mostly non-
         # responsive hosts) isn't stuck paying the full default timeout per
