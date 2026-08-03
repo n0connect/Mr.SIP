@@ -13,6 +13,10 @@
 [![Black Hat Arsenal](assets/badges/BlackHatArsenalEU2020badge.svg)](https://www.blackhat.com/eu-20/arsenal/schedule/index.html#mrsip-sip-based-audit-and-attack-tool-21775)
 [![Offzone Moscow](assets/badges/OffzoneMoscow2019badge.svg)](https://2019.offzone.moscow/report/mr-sip-sip-based-audit-and-attack-tool/)
 [![DEF CON 28](assets/badges/Defcon28badge.svg)](https://www.defcon.org/html/defcon-safemode/dc-safemode-speakers.html#Tas)
+[![Black Hat Arsenal](assets/badges/BlackHatArsenalAsia2023badge.svg)](https://www.blackhat.com/asia-23/arsenal/schedule/index.html#mrsip-the-ultimate-sip-based-penetration-testing-tool-for-voip-systems-31308)
+[![Securi-Tay 2023](assets/badges/SecuriTay2023badge.svg)](https://2023.securi-tay.co.uk/)
+[![Black Hat MEA 2022](assets/badges/BlackHatMEA2022badge.svg)](https://web.archive.org/web/20221103121858/https://blackhatmea.com/speaker/ismail-melih-tas)
+[![Black Hat Arsenal](assets/badges/BlackHatArsenalEU2022badge.svg)](https://www.blackhat.com/eu-22/arsenal/schedule/index.html#mrsip-sip-based-audit-and-attack-tool-29629)
 
 </div>
 
